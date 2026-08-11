@@ -3,19 +3,15 @@ services:
     name: dhd-livraison-backend
     runtime: node
     plan: free
-    buildCommand: npm install --legacy-peer-deps --include=dev && npm run build --workspace=@workspace/api-server
-    startCommand: npm run start
-    healthCheckPath: /api/healthz
+    buildCommand: npm install --include=dev && npm run build --workspace=@workspace/api-server
+    startCommand: npm run start --workspace=@workspace/api-server
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 10000
       - key: DATABASE_URL
-        fromDatabase:
-          name: dhd-postgres
-          property: connectionString
-
-databases:
-  - name: dhd-postgres
-    plan: free
-    databaseName: dhd_db
-    user: dhd_user
+        sync: false
+      - key: JWT_SECRET
+        sync: false

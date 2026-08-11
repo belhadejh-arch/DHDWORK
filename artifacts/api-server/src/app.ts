@@ -1,79 +1,79 @@
-import express, { type Express, type Request, type Response, type NextFunction } from "express";
-import cors from "cors";
-import compression from "compression";
-import pinoHttp from "pino-http";
-import path from "node:path";
-import router from "./routes";
-import { logger } from "./lib/logger";
+import express from 'express';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
 
-const app: Express = express();
+export const app = express();
 
-app.use(compression());
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
 
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
-      },
-      res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
-      },
-    },
-  }),
-);
-
-app.use(
-  cors({
-    origin: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    optionsSuccessStatus: 204,
-  }),
-);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
-// Mount API routes at /api
-app.use("/api", router);
-
-// Also handle /api 404s
-app.use("/api/*", (_req: Request, res: Response) => {
-  res.status(404).json({ error: "API endpoint not found" });
+// Health Check Endpoint (used by Render health check)
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-export async function setupFrontend(app: Express) {
-  const frontendDir = path.resolve(process.cwd(), "artifacts/dhd-livraison");
-  if (process.env.NODE_ENV !== "production") {
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      root: frontendDir,
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.resolve(frontendDir, "dist/public");
-    app.use(express.static(distPath));
-    app.get("*", (_req: Request, res: Response) => {
-      res.sendFile(path.resolve(distPath, "index.html"));
+app.get('/api/healthz', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Primary API Router
+const apiRouter = express.Router();
+
+apiRouter.get('/status', (req, res) => {
+  res.json({ status: 'active', app: 'DHD Livraison API Server' });
+});
+
+// Auth mock & helper endpoints
+apiRouter.post('/auth/login', (req, res) => {
+  const { email, password } = req.body || {};
+  if (email && password) {
+    return res.json({
+      success: true,
+      token: 'jwt_token_sample',
+      admin: { id: 1, email, name: 'Admin DHD', role: 'superadmin' }
     });
   }
-}
-
-// Global error handler — always return JSON so the frontend can parse errors
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  const message = err instanceof Error ? err.message : "Internal server error";
-  logger.error({ err }, "Unhandled error");
-  res.status(500).json({ error: message });
+  return res.status(400).json({ success: false, message: 'Invalid credentials' });
 });
 
-export default app;
+apiRouter.get('/auth/me', (req, res) => {
+  res.json({ id: 1, email: 'admin@dhd-livraison.dz', name: 'Admin DHD', role: 'superadmin' });
+});
+
+apiRouter.get('/employees', (req, res) => {
+  res.json([]);
+});
+
+apiRouter.get('/offices', (req, res) => {
+  res.json([]);
+});
+
+apiRouter.get('/attendance', (req, res) => {
+  res.json([]);
+});
+
+apiRouter.get('/salaries', (req, res) => {
+  res.json([]);
+});
+
+apiRouter.get('/stats', (req, res) => {
+  res.json({
+    totalEmployees: 0,
+    presentToday: 0,
+    activeOffices: 0,
+    pendingAdvances: 0
+  });
+});
+
+app.use('/api', apiRouter);
+
+// Fallback for non-matching routes
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not Found', path: req.path });
+});

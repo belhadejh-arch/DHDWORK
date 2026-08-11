@@ -1,26 +1,22 @@
 {
-  "name": "workspace",
-  "version": "0.0.0",
-  "license": "MIT",
+  "name": "dhd-livraison-workspace",
   "private": true,
+  "type": "module",
   "workspaces": [
-    "artifacts/*",
-    "lib/*",
-    "scripts"
+    "artifacts/api-server",
+    "artifacts/dhd-livraison",
+    "lib/*"
   ],
   "scripts": {
-    "dev": "tsx watch artifacts/api-server/src/index.ts",
-    "build": "npm run build --workspace=@workspace/api-server && npm run build --workspace=@workspace/dhd-livraison",
-    "start": "node --enable-source-maps artifacts/api-server/dist/index.mjs",
-    "typecheck": "tsc --build",
-    "lint": "tsc --build"
-  },
-  "dependencies": {
-    "@replit/connectors-sdk": "^0.4.1"
+    "build:api": "npm run build --workspace=@workspace/api-server",
+    "start:api": "npm run start --workspace=@workspace/api-server",
+    "build": "npm run build --workspace=@workspace/api-server",
+    "lint": "tsc --noEmit",
+    "start": "tsx server.ts",
+    "dev": "tsx server.ts"
   },
   "devDependencies": {
-    "prettier": "^3.9.6",
-    "tsx": "^4.21.0",
-    "typescript": "~5.9.3"
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
   }
 }

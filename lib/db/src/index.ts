@@ -1,19 +1,27 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import * as schema from "./schema";
+import * as schema from "./schema/index.js";
 
 const { Pool } = pg;
 
-const dbUrl =
-  process.env.NEON_DATABASE_URL ||
-  process.env.DATABASE_URL ||
-  "postgres://postgres:postgres@localhost:5432/dhd";
+export * from "./schema/index.js";
 
-export const pool = new Pool({
-  connectionString: dbUrl,
-  ssl: dbUrl.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
-});
+let pool: pg.Pool | null = null;
+let dbInstance: ReturnType<typeof drizzle> | null = null;
 
-export const db = drizzle(pool, { schema });
-
-export * from "./schema";
+export function getDb() {
+  if (!dbInstance) {
+    const connectionString = process.env.DATABASE_URL || process.env.PGDATABASE_URL;
+    if (!connectionString) {
+      console.warn("DATABASE_URL is not defined. Database queries will throw if invoked.");
+    }
+    pool = new Pool({
+      connectionString,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+    dbInstance = drizzle(pool, { schema });
+  }
+  return dbInstance;
+}
