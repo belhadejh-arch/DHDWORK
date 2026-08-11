@@ -468,45 +468,31 @@ export async function deleteEmployee(id: number, reason = "Deleted by admin") {
   return false;
 }
 
+let syncedOfficesOnce = false;
+
 async function syncOfficialOfficesInDb(db: any) {
+  if (syncedOfficesOnce) return;
   try {
     const existing = await db.select().from(offices);
-    let oeb = existing.find((o: any) => o.name?.includes("أم البواقي") || Number(o.id) === 1);
-    let oef = existing.find((o: any) => o.name?.includes("عين الفكرون") || Number(o.id) === 2);
-
-    if (oeb) {
-      await db.update(offices).set({
-        name: "مكتب أم البواقي",
-        address: "أم البواقي، الجزائر",
-        latitude: "35.8707722",
-        longitude: "7.1101606"
-      }).where(eq(offices.id, oeb.id));
-    } else {
-      await db.insert(offices).values({
-        name: "مكتب أم البواقي",
-        address: "أم البواقي، الجزائر",
-        latitude: "35.8707722",
-        longitude: "7.1101606",
-        qrCodeData: "DHD-OFFICE-1"
-      });
+    if (existing.length === 0) {
+      await db.insert(offices).values([
+        {
+          name: "مكتب أم البواقي",
+          address: "أم البواقي، الجزائر",
+          latitude: "35.8707722",
+          longitude: "7.1101606",
+          qrCodeData: "DHD-OFFICE-1"
+        },
+        {
+          name: "مكتب عين الفكرون",
+          address: "عين الفكرون، أم البواقي، الجزائر",
+          latitude: "35.9700208",
+          longitude: "6.8771648",
+          qrCodeData: "DHD-OFFICE-2"
+        }
+      ]);
     }
-
-    if (oef) {
-      await db.update(offices).set({
-        name: "مكتب عين الفكرون",
-        address: "عين الفكرون، أم البواقي، الجزائر",
-        latitude: "35.9700208",
-        longitude: "6.8771648"
-      }).where(eq(offices.id, oef.id));
-    } else {
-      await db.insert(offices).values({
-        name: "مكتب عين الفكرون",
-        address: "عين الفكرون، أم البواقي، الجزائر",
-        latitude: "35.9700208",
-        longitude: "6.8771648",
-        qrCodeData: "DHD-OFFICE-2"
-      });
-    }
+    syncedOfficesOnce = true;
   } catch (err) {
     console.warn("syncOfficialOfficesInDb error:", err);
   }
