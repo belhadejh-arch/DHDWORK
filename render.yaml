@@ -3,7 +3,7 @@ services:
     name: dhd-livraison-backend
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build --workspace=@workspace/api-server
+    buildCommand: npm install --legacy-peer-deps && npm run build --workspace=@workspace/api-server
     startCommand: npm run start
     healthCheckPath: /api/healthz
     envVars:
