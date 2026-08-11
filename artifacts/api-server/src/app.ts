@@ -150,8 +150,8 @@ apiRouter.post('/auth/login', async (req, res) => {
 });
 
 apiRouter.post('/auth/login/serial', async (req, res) => {
-  const { serial, employeeCode, phone, pinCode, code: rawCode } = req.body || {};
-  const code = String(serial || employeeCode || phone || pinCode || rawCode || '').trim();
+  const { serial, serialNumber, employeeCode, phone, pinCode, code: rawCode } = req.body || {};
+  const code = String(serial || serialNumber || employeeCode || phone || pinCode || rawCode || '').trim();
   if (!code) {
     return res.status(400).json({ success: false, message: 'برجاء إدخال الرقم التسلسلي أو الكود الخاص بك' });
   }
