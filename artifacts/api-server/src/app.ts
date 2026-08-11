@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'node:path';
+import fs from 'node:fs';
 
 export const app = express();
 
@@ -13,7 +15,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Health Check Endpoint (used by Render health check)
+// Health Check Endpoint
 app.get('/healthz', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -73,7 +75,35 @@ apiRouter.get('/stats', (req, res) => {
 
 app.use('/api', apiRouter);
 
-// Fallback for non-matching routes
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found', path: req.path });
-});
+// Static frontend serving if available
+const frontendDist = path.resolve(process.cwd(), 'artifacts/dhd-livraison/dist/public');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.use((req, res) => {
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'Not Found', path: req.path });
+    }
+    const indexPath = path.join(frontendDist, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    return res.status(404).json({ error: 'Not Found', path: req.path });
+  });
+} else {
+  // Fallback root endpoint
+  app.get('/', (req, res) => {
+    res.json({
+      name: 'DHD Livraison API Server',
+      status: 'online',
+      endpoints: {
+        health: '/healthz',
+        apiStatus: '/api/status'
+      }
+    });
+  });
+
+  app.use((req, res) => {
+    res.status(404).json({ error: 'Not Found', path: req.path });
+  });
+}
+
