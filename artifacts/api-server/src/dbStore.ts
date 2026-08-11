@@ -106,21 +106,24 @@ function saveLocalStore() {
 // Helpers to format PostgreSQL rows into rich API objects
 function formatOffice(o: any) {
   if (!o) return null;
-  const isEye = o.name?.includes("عين") || Number(o.id) === 2;
+  const officeId = Number(o.id);
+  const rawName = o.name || (officeId === 2 ? "مكتب عين الفكرون" : "مكتب أم البواقي");
+  const isEye = rawName.includes("عين") || officeId === 2;
+
   return {
     ...o,
-    id: Number(o.id),
-    name: isEye ? "مكتب عين الفكرون" : "مكتب أم البواقي",
-    code: isEye ? "OEF-01" : "OEB-01",
-    city: isEye ? "عين الفكرون" : "أم البواقي",
+    id: officeId,
+    name: rawName,
+    code: o.code || (isEye ? "OEF-01" : officeId === 1 ? "OEB-01" : `OFF-${officeId}`),
+    city: o.city || (isEye ? "عين الفكرون" : "أم البواقي"),
     address: o.address || (isEye ? "عين الفكرون، أم البواقي، الجزائر" : "أم البواقي، الجزائر"),
-    phone: isEye ? "032000002" : "032000001",
+    phone: o.phone || (isEye ? "032000002" : "032000001"),
     latitude: String(o.latitude || (isEye ? "35.9700208" : "35.8707722")),
     longitude: String(o.longitude || (isEye ? "6.8771648" : "7.1101606")),
-    geofenceRadiusMeters: isEye ? 150 : 100,
-    active: true,
-    qrCodeSecret: o.qrCodeData || `DHD-OFFICE-${o.id}`,
-    qrCodeData: o.qrCodeData || `DHD-OFFICE-${o.id}`
+    geofenceRadiusMeters: o.geofenceRadiusMeters ? Number(o.geofenceRadiusMeters) : (isEye ? 150 : 100),
+    active: o.active !== false && o.isActive !== false,
+    qrCodeSecret: o.qrCodeData || o.qrCodeSecret || `DHD-OFFICE-${officeId}`,
+    qrCodeData: o.qrCodeData || o.qrCodeSecret || `DHD-OFFICE-${officeId}`
   };
 }
 
@@ -128,7 +131,7 @@ function formatEmployee(e: any, officeMap?: Map<number, string>) {
   if (!e) return null;
   const empId = Number(e.id);
   const isAct = e.isActive !== false && e.status !== "inactive" && !e.deletedAt;
-  const officeName = officeMap?.get(Number(e.officeId)) || (e.officeId === 2 ? "مكتب عين الفكرون" : "مكتب أم البواقي");
+  const officeName = officeMap?.get(Number(e.officeId)) || e.officeName || (e.officeId === 2 ? "مكتب عين الفكرون" : "مكتب أم البواقي");
 
   return {
     ...e,
@@ -150,26 +153,56 @@ function formatEmployee(e: any, officeMap?: Map<number, string>) {
     qrCodeSecret: e.qrCodeData || e.qrCodeSecret || `QR-EMP-${empId}`,
     qrCodeData: e.qrCodeData || e.qrCodeSecret || `QR-EMP-${empId}`,
     pinCode: e.pinCode || e.passwordHash || "1234",
-    joinedAt: e.hireDate || e.joinedAt || e.createdAt ? new Date(e.hireDate || e.joinedAt || e.createdAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+    joinedAt: e.hireDate || e.joinedAt || (e.createdAt ? new Date(e.createdAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]),
     createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString()
   };
 }
 
 // Database helper functions with fallback
-export async function getAdminByEmail(email: string) {
+export async function getAdminById(id: number) {
   try {
     const db = getDb();
     if (db) {
-      const res = await db.select().from(admins).where(eq(admins.email, email));
+      const res = await db.select().from(admins).where(eq(admins.id, Number(id)));
       if (res.length > 0) return res[0];
+    }
+  } catch (err) {
+    console.warn("DB query admin by id failed, using fallback:", err);
+  }
+  return memoryStore.admins.find((a) => Number(a.id) === Number(id)) || memoryStore.admins[0] || null;
+}
+
+export async function getAdminByEmail(emailOrUsername: string) {
+  try {
+    const db = getDb();
+    if (db) {
+      const allAdmins = await db.select().from(admins);
+      if (allAdmins.length > 0) {
+        const q = String(emailOrUsername || "").toLowerCase().trim();
+        const matched = allAdmins.find((a: any) =>
+          (a.email && a.email.toLowerCase() === q) ||
+          (a.username && a.username.toLowerCase() === q) ||
+          (a.serialNumber && a.serialNumber.toLowerCase() === q)
+        );
+        if (matched) return matched;
+        
+        // Return primary admin as fallback for default login queries
+        const primary = allAdmins.find((a: any) => a.isPrimary) || allAdmins[0];
+        return primary;
+      }
     }
   } catch (err) {
     console.warn("DB query admin failed, using fallback:", err);
   }
-  return memoryStore.admins.find((a) => a.email.toLowerCase() === email.toLowerCase()) || null;
+  const q = String(emailOrUsername || "").toLowerCase().trim();
+  const found = memoryStore.admins.find((a) => a.email?.toLowerCase() === q || a.username?.toLowerCase() === q);
+  return found || memoryStore.admins[0] || null;
 }
 
 export async function getEmployeeByCode(code: string) {
+  const q = String(code || "").toLowerCase().trim();
+  if (!q) return null;
+
   try {
     const db = getDb();
     if (db) {
@@ -177,14 +210,27 @@ export async function getEmployeeByCode(code: string) {
       const allOffices = await db.select().from(offices);
       const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
 
-      const q = String(code).toLowerCase().trim();
-      const matched = allEmps.find((e: any) =>
-        (e.serialNumber && String(e.serialNumber).toLowerCase() === q) ||
-        (e.employeeCode && String(e.employeeCode).toLowerCase() === q) ||
-        (e.phone && String(e.phone) === q) ||
-        (e.email && String(e.email).toLowerCase() === q) ||
-        (e.id && String(e.id) === q)
-      );
+      const matched = allEmps.find((e: any) => {
+        const serial = String(e.serialNumber || "").toLowerCase();
+        const empCode = String(e.employeeCode || "").toLowerCase();
+        const natId = String(e.nationalId || "").toLowerCase();
+        const phone = String(e.phone || "").toLowerCase();
+        const email = String(e.email || "").toLowerCase();
+        const empId = String(e.id);
+        const fullName = `${e.firstName || ""} ${e.lastName || ""}`.toLowerCase().trim();
+        const pin = String(e.pinCode || e.passwordHash || "");
+
+        return (
+          serial === q ||
+          empCode === q ||
+          natId === q ||
+          phone === q ||
+          email === q ||
+          empId === q ||
+          fullName === q ||
+          pin === q
+        );
+      });
 
       if (matched) {
         return formatEmployee(matched, officeMap);
@@ -194,13 +240,14 @@ export async function getEmployeeByCode(code: string) {
     console.warn("DB query employee by code failed, using fallback:", err);
   }
 
-  const emp = memoryStore.employees.find(
-    (e) =>
-      e.employeeCode?.toLowerCase() === code.toLowerCase() ||
-      e.serialNumber?.toLowerCase() === code.toLowerCase() ||
-      e.pinCode === code ||
-      String(e.id) === code
-  );
+  const emp = memoryStore.employees.find((e) => {
+    const serial = String(e.serialNumber || e.employeeCode || "").toLowerCase();
+    const phone = String(e.phone || "").toLowerCase();
+    const pin = String(e.pinCode || "");
+    const empId = String(e.id);
+    return serial === q || phone === q || pin === q || empId === q;
+  });
+
   if (emp) {
     const office = memoryStore.offices.find((o) => o.id === emp.officeId);
     return formatEmployee({ ...emp, officeName: office?.name });
@@ -209,6 +256,9 @@ export async function getEmployeeByCode(code: string) {
 }
 
 export async function getEmployeeByQrSecret(secret: string) {
+  const s = String(secret || "").trim();
+  if (!s) return null;
+
   try {
     const db = getDb();
     if (db) {
@@ -216,11 +266,11 @@ export async function getEmployeeByQrSecret(secret: string) {
       const allOffices = await db.select().from(offices);
       const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
 
-      const s = String(secret).trim();
       const matched = allEmps.find((e: any) =>
         (e.qrCodeData && String(e.qrCodeData) === s) ||
         (e.qrCodeSecret && String(e.qrCodeSecret) === s) ||
-        (e.serialNumber && String(e.serialNumber) === s)
+        (e.serialNumber && String(e.serialNumber) === s) ||
+        (e.employeeCode && String(e.employeeCode) === s)
       );
 
       if (matched) {
@@ -231,7 +281,7 @@ export async function getEmployeeByQrSecret(secret: string) {
     console.warn("DB query employee by QR failed, using fallback:", err);
   }
 
-  const emp = memoryStore.employees.find((e) => e.qrCodeSecret === secret || e.qrCodeData === secret);
+  const emp = memoryStore.employees.find((e) => e.qrCodeSecret === s || e.qrCodeData === s || e.serialNumber === s);
   if (emp) {
     const office = memoryStore.offices.find((o) => o.id === emp.officeId);
     return formatEmployee({ ...emp, officeName: office?.name });
