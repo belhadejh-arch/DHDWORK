@@ -76,7 +76,10 @@ apiRouter.get('/stats', (req, res) => {
 app.use('/api', apiRouter);
 
 // Static frontend serving if available
-const frontendDist = path.resolve(process.cwd(), 'artifacts/dhd-livraison/dist/public');
+const publicDir = path.resolve(process.cwd(), 'public');
+const artifactsDir = path.resolve(process.cwd(), 'artifacts/dhd-livraison/dist/public');
+const frontendDist = fs.existsSync(path.join(publicDir, 'index.html')) ? publicDir : artifactsDir;
+
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   app.use((req, res) => {

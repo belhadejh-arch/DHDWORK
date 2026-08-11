@@ -10,7 +10,7 @@
   "scripts": {
     "build:api": "npm run build --workspace=@workspace/api-server",
     "start:api": "npm run start --workspace=@workspace/api-server",
-    "build": "npm run build --workspace=@workspace/api-server",
+    "build": "npm run build --workspace=@workspace/api-server && node -e \"const fs = require('fs'); fs.mkdirSync('public', { recursive: true }); fs.cpSync('artifacts/dhd-livraison/dist/public', 'public', { recursive: true });\"",
     "lint": "tsc --noEmit",
     "start": "tsx server.ts",
     "dev": "tsx server.ts"

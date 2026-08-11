@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "outputDirectory": "artifacts/dhd-livraison/dist/public",
+  "outputDirectory": "public",
   "rewrites": [
     {
       "source": "/api",
