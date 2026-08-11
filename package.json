@@ -1,0 +1,26 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "workspaces": [
+    "artifacts/*",
+    "lib/*",
+    "scripts"
+  ],
+  "scripts": {
+    "dev": "tsx watch artifacts/api-server/src/index.ts",
+    "build": "npm run build --workspace=@workspace/api-server && npm run build --workspace=@workspace/dhd-livraison",
+    "start": "node --enable-source-maps artifacts/api-server/dist/index.mjs",
+    "typecheck": "tsc --build",
+    "lint": "tsc --build"
+  },
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3"
+  }
+}
