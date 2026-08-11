@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["server.ts", "artifacts/**/*", "lib/**/*"]
+  "include": ["server.ts", "artifacts/**/*", "lib/**/*", "api/**/*"]
 }
