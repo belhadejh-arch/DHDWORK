@@ -62,82 +62,22 @@ const defaultStore: DataStore = {
       createdAt: new Date().toISOString()
     }
   ],
-  employees: [
-    {
-      id: 1,
-      nationalId: "1098237491",
-      employeeCode: "EMP-001",
-      firstName: "أحمد",
-      lastName: "بن علي",
-      email: "ahmed@dhd-livraison.dz",
-      phone: "0550123456",
-      role: "delivery_driver",
-      officeId: 1,
-      officeName: "مكتب أم البواقي",
-      baseSalary: "45000",
-      status: "active",
-      qrCodeSecret: "QR-EMP-001-A1",
-      pinCode: "1234",
-      joinedAt: "2024-01-15",
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 2,
-      nationalId: "1098237492",
-      employeeCode: "EMP-002",
-      firstName: "كريم",
-      lastName: "محمودي",
-      email: "karim@dhd-livraison.dz",
-      phone: "0660987654",
-      role: "office_agent",
-      officeId: 2,
-      officeName: "مكتب عين الفكرون",
-      baseSalary: "50000",
-      status: "active",
-      qrCodeSecret: "QR-EMP-002-B2",
-      pinCode: "5678",
-      joinedAt: "2024-02-01",
-      createdAt: new Date().toISOString()
-    }
-  ],
-  attendance: [
-    {
-      id: 1,
-      employeeId: 1,
-      employeeName: "أحمد بن علي",
-      date: new Date().toISOString().split("T")[0],
-      checkIn: new Date().toISOString(),
-      checkOut: null,
-      status: "present",
-      notes: "حضور مبكر",
-      createdAt: new Date().toISOString()
-    }
-  ],
+  employees: [],
+  attendance: [],
   advances: [],
   bonuses: [],
   violations: [],
   salaries: [],
   leaveRequests: [],
   vacationRequests: [],
-  notifications: [
-    {
-      id: 1,
-      recipientType: "admin",
-      recipientId: null,
-      title: "مرحباً بكم في نظام DHD Livraison",
-      message: "تم تشغيل النظام وربطه بقاعدة البيانات بنجاح.",
-      read: false,
-      createdAt: new Date().toISOString()
-    }
-  ],
+  notifications: [],
   settings: {
     id: 1,
     companyName: "DHD Livraison",
     currency: "DZD",
     language: "ar",
     workStartTime: "08:00",
-    workEndTime: "17:00",
-    updatedAt: new Date().toISOString()
+    workEndTime: "17:00"
   }
 };
 
@@ -163,6 +103,58 @@ function saveLocalStore() {
   }
 }
 
+// Helpers to format PostgreSQL rows into rich API objects
+function formatOffice(o: any) {
+  if (!o) return null;
+  const isEye = o.name?.includes("عين") || Number(o.id) === 2;
+  return {
+    ...o,
+    id: Number(o.id),
+    name: isEye ? "مكتب عين الفكرون" : "مكتب أم البواقي",
+    code: isEye ? "OEF-01" : "OEB-01",
+    city: isEye ? "عين الفكرون" : "أم البواقي",
+    address: o.address || (isEye ? "عين الفكرون، أم البواقي، الجزائر" : "أم البواقي، الجزائر"),
+    phone: isEye ? "032000002" : "032000001",
+    latitude: String(o.latitude || (isEye ? "35.9700208" : "35.8707722")),
+    longitude: String(o.longitude || (isEye ? "6.8771648" : "7.1101606")),
+    geofenceRadiusMeters: isEye ? 150 : 100,
+    active: true,
+    qrCodeSecret: o.qrCodeData || `DHD-OFFICE-${o.id}`,
+    qrCodeData: o.qrCodeData || `DHD-OFFICE-${o.id}`
+  };
+}
+
+function formatEmployee(e: any, officeMap?: Map<number, string>) {
+  if (!e) return null;
+  const empId = Number(e.id);
+  const isAct = e.isActive !== false && e.status !== "inactive" && !e.deletedAt;
+  const officeName = officeMap?.get(Number(e.officeId)) || (e.officeId === 2 ? "مكتب عين الفكرون" : "مكتب أم البواقي");
+
+  return {
+    ...e,
+    id: empId,
+    nationalId: e.nationalId || e.serialNumber || `NAT-${empId}`,
+    employeeCode: e.serialNumber || e.employeeCode || `EMP-${empId}`,
+    serialNumber: e.serialNumber || e.employeeCode || `EMP-${empId}`,
+    firstName: e.firstName || "",
+    lastName: e.lastName || "",
+    email: e.email || "",
+    phone: e.phone || "",
+    role: e.position || e.role || "delivery_driver",
+    position: e.position || e.role || "سائق توصيل",
+    officeId: e.officeId ? Number(e.officeId) : 1,
+    officeName,
+    baseSalary: String(e.baseSalary || 40000),
+    status: isAct ? "active" : "inactive",
+    isActive: isAct,
+    qrCodeSecret: e.qrCodeData || e.qrCodeSecret || `QR-EMP-${empId}`,
+    qrCodeData: e.qrCodeData || e.qrCodeSecret || `QR-EMP-${empId}`,
+    pinCode: e.pinCode || e.passwordHash || "1234",
+    joinedAt: e.hireDate || e.joinedAt || e.createdAt ? new Date(e.hireDate || e.joinedAt || e.createdAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+    createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString()
+  };
+}
+
 // Database helper functions with fallback
 export async function getAdminByEmail(email: string) {
   try {
@@ -181,23 +173,37 @@ export async function getEmployeeByCode(code: string) {
   try {
     const db = getDb();
     if (db) {
-      const res = await db.select().from(employees).where(eq(employees.employeeCode, code));
-      if (res.length > 0) {
-        const emp = res[0];
-        const officeRes = emp.officeId ? await db.select().from(offices).where(eq(offices.id, emp.officeId)) : [];
-        return {
-          ...emp,
-          officeName: officeRes[0]?.name || "DHD Livraison"
-        };
+      const allEmps = await db.select().from(employees);
+      const allOffices = await db.select().from(offices);
+      const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+
+      const q = String(code).toLowerCase().trim();
+      const matched = allEmps.find((e: any) =>
+        (e.serialNumber && String(e.serialNumber).toLowerCase() === q) ||
+        (e.employeeCode && String(e.employeeCode).toLowerCase() === q) ||
+        (e.phone && String(e.phone) === q) ||
+        (e.email && String(e.email).toLowerCase() === q) ||
+        (e.id && String(e.id) === q)
+      );
+
+      if (matched) {
+        return formatEmployee(matched, officeMap);
       }
     }
   } catch (err) {
     console.warn("DB query employee by code failed, using fallback:", err);
   }
-  const emp = memoryStore.employees.find((e) => e.employeeCode.toLowerCase() === code.toLowerCase() || e.pinCode === code);
+
+  const emp = memoryStore.employees.find(
+    (e) =>
+      e.employeeCode?.toLowerCase() === code.toLowerCase() ||
+      e.serialNumber?.toLowerCase() === code.toLowerCase() ||
+      e.pinCode === code ||
+      String(e.id) === code
+  );
   if (emp) {
     const office = memoryStore.offices.find((o) => o.id === emp.officeId);
-    return { ...emp, officeName: office?.name || "DHD Livraison" };
+    return formatEmployee({ ...emp, officeName: office?.name });
   }
   return null;
 }
@@ -206,23 +212,29 @@ export async function getEmployeeByQrSecret(secret: string) {
   try {
     const db = getDb();
     if (db) {
-      const res = await db.select().from(employees).where(eq(employees.qrCodeSecret, secret));
-      if (res.length > 0) {
-        const emp = res[0];
-        const officeRes = emp.officeId ? await db.select().from(offices).where(eq(offices.id, emp.officeId)) : [];
-        return {
-          ...emp,
-          officeName: officeRes[0]?.name || "DHD Livraison"
-        };
+      const allEmps = await db.select().from(employees);
+      const allOffices = await db.select().from(offices);
+      const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+
+      const s = String(secret).trim();
+      const matched = allEmps.find((e: any) =>
+        (e.qrCodeData && String(e.qrCodeData) === s) ||
+        (e.qrCodeSecret && String(e.qrCodeSecret) === s) ||
+        (e.serialNumber && String(e.serialNumber) === s)
+      );
+
+      if (matched) {
+        return formatEmployee(matched, officeMap);
       }
     }
   } catch (err) {
     console.warn("DB query employee by QR failed, using fallback:", err);
   }
-  const emp = memoryStore.employees.find((e) => e.qrCodeSecret === secret);
+
+  const emp = memoryStore.employees.find((e) => e.qrCodeSecret === secret || e.qrCodeData === secret);
   if (emp) {
     const office = memoryStore.offices.find((o) => o.id === emp.officeId);
-    return { ...emp, officeName: office?.name || "DHD Livraison" };
+    return formatEmployee({ ...emp, officeName: office?.name });
   }
   return null;
 }
@@ -231,14 +243,11 @@ export async function getEmployeeById(id: number) {
   try {
     const db = getDb();
     if (db) {
-      const res = await db.select().from(employees).where(eq(employees.id, id));
+      const res = await db.select().from(employees).where(eq(employees.id, Number(id)));
       if (res.length > 0) {
-        const emp = res[0];
-        const officeRes = emp.officeId ? await db.select().from(offices).where(eq(offices.id, emp.officeId)) : [];
-        return {
-          ...emp,
-          officeName: officeRes[0]?.name || "DHD Livraison"
-        };
+        const allOffices = await db.select().from(offices);
+        const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+        return formatEmployee(res[0], officeMap);
       }
     }
   } catch (err) {
@@ -247,7 +256,7 @@ export async function getEmployeeById(id: number) {
   const emp = memoryStore.employees.find((e) => e.id === Number(id));
   if (emp) {
     const office = memoryStore.offices.find((o) => o.id === emp.officeId);
-    return { ...emp, officeName: office?.name || "DHD Livraison" };
+    return formatEmployee({ ...emp, officeName: office?.name });
   }
   return null;
 }
@@ -258,14 +267,12 @@ export async function listEmployees(queryFilter?: any) {
     if (db) {
       const allEmps = await db.select().from(employees);
       const allOffices = await db.select().from(offices);
-      const officeMap = new Map(allOffices.map((o: any) => [o.id, o.name]));
-      let result = allEmps.map((e: any) => ({
-        ...e,
-        officeName: e.officeId ? officeMap.get(e.officeId) || "DHD Livraison" : "DHD Livraison"
-      }));
+      const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+
+      let result = allEmps.map((e: any) => formatEmployee(e, officeMap));
 
       if (queryFilter?.officeId) {
-        result = result.filter((e: any) => e.officeId === Number(queryFilter.officeId));
+        result = result.filter((e: any) => Number(e.officeId) === Number(queryFilter.officeId));
       }
       if (queryFilter?.status) {
         result = result.filter((e: any) => e.status === queryFilter.status);
@@ -274,9 +281,10 @@ export async function listEmployees(queryFilter?: any) {
         const q = String(queryFilter.search).toLowerCase();
         result = result.filter(
           (e: any) =>
-            e.firstName.toLowerCase().includes(q) ||
-            e.lastName.toLowerCase().includes(q) ||
-            e.employeeCode.toLowerCase().includes(q)
+            (e.firstName && e.firstName.toLowerCase().includes(q)) ||
+            (e.lastName && e.lastName.toLowerCase().includes(q)) ||
+            (e.employeeCode && e.employeeCode.toLowerCase().includes(q)) ||
+            (e.serialNumber && e.serialNumber.toLowerCase().includes(q))
         );
       }
       return result;
@@ -285,13 +293,10 @@ export async function listEmployees(queryFilter?: any) {
     console.warn("DB listEmployees failed, using fallback:", err);
   }
 
-  let result = memoryStore.employees.map((e) => {
-    const office = memoryStore.offices.find((o) => o.id === e.officeId);
-    return { ...e, officeName: office?.name || "DHD Livraison" };
-  });
+  let result = memoryStore.employees.map((e) => formatEmployee(e));
 
   if (queryFilter?.officeId) {
-    result = result.filter((e) => e.officeId === Number(queryFilter.officeId));
+    result = result.filter((e) => Number(e.officeId) === Number(queryFilter.officeId));
   }
   if (queryFilter?.status) {
     result = result.filter((e) => e.status === queryFilter.status);
@@ -300,17 +305,17 @@ export async function listEmployees(queryFilter?: any) {
     const q = String(queryFilter.search).toLowerCase();
     result = result.filter(
       (e) =>
-        e.firstName.toLowerCase().includes(q) ||
-        e.lastName.toLowerCase().includes(q) ||
-        e.employeeCode.toLowerCase().includes(q)
+        (e.firstName && e.firstName.toLowerCase().includes(q)) ||
+        (e.lastName && e.lastName.toLowerCase().includes(q)) ||
+        (e.employeeCode && e.employeeCode.toLowerCase().includes(q))
     );
   }
   return result;
 }
 
 export async function createEmployee(data: any) {
-  const code = data.employeeCode || `EMP-${String(memoryStore.employees.length + 1).padStart(3, "0")}`;
-  const qr = data.qrCodeSecret || `QR-${code}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const code = data.employeeCode || data.serialNumber || `EMP-${Math.floor(100000 + Math.random() * 900000)}`;
+  const qr = data.qrCodeSecret || data.qrCodeData || `dhd-auth-${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`;
 
   try {
     const db = getDb();
@@ -318,26 +323,21 @@ export async function createEmployee(data: any) {
       const [newEmp] = await db
         .insert(employees)
         .values({
-          nationalId: data.nationalId || null,
-          employeeCode: code,
+          officeId: data.officeId ? Number(data.officeId) : 1,
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email || null,
           phone: data.phone || null,
-          role: data.role || "delivery_driver",
-          officeId: data.officeId ? Number(data.officeId) : null,
+          position: data.role || data.position || "سائق توصيل",
           baseSalary: String(data.baseSalary || 40000),
-          status: data.status || "active",
-          qrCodeSecret: qr,
-          pinCode: data.pinCode || "1234",
-          joinedAt: data.joinedAt || new Date().toISOString().split("T")[0]
+          isActive: data.status ? data.status === "active" : true,
+          serialNumber: code,
+          qrCodeData: qr,
+          hireDate: data.joinedAt || data.hireDate || new Date().toISOString().split("T")[0]
         })
         .returning();
       if (newEmp) {
-        // Backup to memory
-        memoryStore.employees.push(newEmp);
-        saveLocalStore();
-        return newEmp;
+        return formatEmployee(newEmp);
       }
     }
   } catch (err) {
@@ -346,49 +346,43 @@ export async function createEmployee(data: any) {
 
   const newEmp = {
     id: memoryStore.employees.length > 0 ? Math.max(...memoryStore.employees.map((e) => e.id)) + 1 : 1,
-    nationalId: data.nationalId || null,
-    employeeCode: code,
+    officeId: data.officeId ? Number(data.officeId) : 1,
     firstName: data.firstName,
     lastName: data.lastName,
     email: data.email || null,
     phone: data.phone || null,
-    role: data.role || "delivery_driver",
-    officeId: data.officeId ? Number(data.officeId) : null,
+    position: data.role || data.position || "سائق توصيل",
     baseSalary: String(data.baseSalary || 40000),
-    status: data.status || "active",
-    qrCodeSecret: qr,
-    pinCode: data.pinCode || "1234",
-    joinedAt: data.joinedAt || new Date().toISOString().split("T")[0],
+    isActive: true,
+    serialNumber: code,
+    qrCodeData: qr,
     createdAt: new Date().toISOString()
   };
 
   memoryStore.employees.push(newEmp);
   saveLocalStore();
-  return newEmp;
+  return formatEmployee(newEmp);
 }
 
 export async function updateEmployee(id: number, data: any) {
   try {
     const db = getDb();
     if (db) {
-      const updateData: any = {};
+      const updateData: any = { updatedAt: new Date() };
       if (data.firstName !== undefined) updateData.firstName = data.firstName;
       if (data.lastName !== undefined) updateData.lastName = data.lastName;
       if (data.email !== undefined) updateData.email = data.email;
       if (data.phone !== undefined) updateData.phone = data.phone;
-      if (data.role !== undefined) updateData.role = data.role;
+      if (data.role !== undefined || data.position !== undefined) updateData.position = data.position || data.role;
       if (data.officeId !== undefined) updateData.officeId = Number(data.officeId);
       if (data.baseSalary !== undefined) updateData.baseSalary = String(data.baseSalary);
-      if (data.status !== undefined) updateData.status = data.status;
+      if (data.status !== undefined) updateData.isActive = data.status === "active";
+      if (data.isActive !== undefined) updateData.isActive = Boolean(data.isActive);
+      if (data.qrCodeSecret !== undefined || data.qrCodeData !== undefined) updateData.qrCodeData = data.qrCodeData || data.qrCodeSecret;
 
       const [updated] = await db.update(employees).set(updateData).where(eq(employees.id, Number(id))).returning();
       if (updated) {
-        const idx = memoryStore.employees.findIndex((e) => e.id === Number(id));
-        if (idx !== -1) {
-          memoryStore.employees[idx] = { ...memoryStore.employees[idx], ...updated };
-          saveLocalStore();
-        }
-        return updated;
+        return formatEmployee(updated);
       }
     }
   } catch (err) {
@@ -399,120 +393,69 @@ export async function updateEmployee(id: number, data: any) {
   if (idx !== -1) {
     memoryStore.employees[idx] = { ...memoryStore.employees[idx], ...data };
     saveLocalStore();
-    return memoryStore.employees[idx];
+    return formatEmployee(memoryStore.employees[idx]);
   }
   return null;
 }
 
-export async function deleteEmployee(id: number) {
+export async function deleteEmployee(id: number, reason = "Deleted by admin") {
   try {
     const db = getDb();
     if (db) {
-      await db.delete(employees).where(eq(employees.id, Number(id)));
+      await db.update(employees).set({ isActive: false, deletedAt: new Date(), deletionReason: reason }).where(eq(employees.id, Number(id)));
+      return true;
     }
   } catch (err) {
-    console.warn("DB deleteEmployee failed:", err);
+    console.warn("DB deleteEmployee failed, using fallback:", err);
   }
-  memoryStore.employees = memoryStore.employees.filter((e) => e.id !== Number(id));
-  saveLocalStore();
-  return true;
+  const emp = memoryStore.employees.find((e) => e.id === Number(id));
+  if (emp) {
+    emp.status = "inactive";
+    emp.isActive = false;
+    saveLocalStore();
+    return true;
+  }
+  return false;
 }
 
 async function syncOfficialOfficesInDb(db: any) {
   try {
     const existing = await db.select().from(offices);
-    let oeb = existing.find((o: any) => o.code === "OEB-01" || o.name.includes("أم البواقي"));
-    let oef = existing.find((o: any) => o.code === "OEF-01" || o.name.includes("عين الفكرون"));
+    let oeb = existing.find((o: any) => o.name?.includes("أم البواقي") || Number(o.id) === 1);
+    let oef = existing.find((o: any) => o.name?.includes("عين الفكرون") || Number(o.id) === 2);
 
-    if (!oeb) {
-      const unused = existing.find((o: any) => o.id !== oef?.id && !o.name.includes("عين الفكرون"));
-      if (unused) {
-        const [updated] = await db.update(offices).set({
-          name: "مكتب أم البواقي",
-          code: "OEB-01",
-          city: "أم البواقي",
-          address: "أم البواقي، الجزائر",
-          latitude: "35.8707722",
-          longitude: "7.1101606",
-          geofenceRadiusMeters: 100,
-          active: true
-        }).where(eq(offices.id, unused.id)).returning();
-        oeb = updated;
-      } else {
-        const [inserted] = await db.insert(offices).values({
-          name: "مكتب أم البواقي",
-          code: "OEB-01",
-          city: "أم البواقي",
-          address: "أم البواقي، الجزائر",
-          phone: "032000001",
-          latitude: "35.8707722",
-          longitude: "7.1101606",
-          geofenceRadiusMeters: 100,
-          active: true
-        }).returning();
-        oeb = inserted;
-      }
-    } else {
+    if (oeb) {
       await db.update(offices).set({
         name: "مكتب أم البواقي",
-        code: "OEB-01",
-        city: "أم البواقي",
+        address: "أم البواقي، الجزائر",
+        latitude: "35.8707722",
+        longitude: "7.1101606"
+      }).where(eq(offices.id, oeb.id));
+    } else {
+      await db.insert(offices).values({
+        name: "مكتب أم البواقي",
+        address: "أم البواقي، الجزائر",
         latitude: "35.8707722",
         longitude: "7.1101606",
-        active: true
-      }).where(eq(offices.id, oeb.id));
+        qrCodeData: "DHD-OFFICE-1"
+      });
     }
 
-    if (!oef) {
-      const unused = existing.find((o: any) => o.id !== oeb?.id && !o.name.includes("أم البواقي"));
-      if (unused) {
-        const [updated] = await db.update(offices).set({
-          name: "مكتب عين الفكرون",
-          code: "OEF-01",
-          city: "عين الفكرون",
-          address: "عين الفكرون، أم البواقي",
-          latitude: "35.9700208",
-          longitude: "6.8771648",
-          geofenceRadiusMeters: 150,
-          active: true
-        }).where(eq(offices.id, unused.id)).returning();
-        oef = updated;
-      } else {
-        const [inserted] = await db.insert(offices).values({
-          name: "مكتب عين الفكرون",
-          code: "OEF-01",
-          city: "عين الفكرون",
-          address: "عين الفكرون، أم البواقي",
-          phone: "032000002",
-          latitude: "35.9700208",
-          longitude: "6.8771648",
-          geofenceRadiusMeters: 150,
-          active: true
-        }).returning();
-        oef = inserted;
-      }
-    } else {
+    if (oef) {
       await db.update(offices).set({
         name: "مكتب عين الفكرون",
-        code: "OEF-01",
-        city: "عين الفكرون",
+        address: "عين الفكرون، أم البواقي، الجزائر",
+        latitude: "35.9700208",
+        longitude: "6.8771648"
+      }).where(eq(offices.id, oef.id));
+    } else {
+      await db.insert(offices).values({
+        name: "مكتب عين الفكرون",
+        address: "عين الفكرون، أم البواقي، الجزائر",
         latitude: "35.9700208",
         longitude: "6.8771648",
-        active: true
-      }).where(eq(offices.id, oef.id));
-    }
-
-    for (const o of existing) {
-      if (o.id !== oeb?.id && o.id !== oef?.id) {
-        await db.update(offices).set({ active: false }).where(eq(offices.id, o.id));
-      }
-    }
-
-    const allEmps = await db.select().from(employees);
-    for (const emp of allEmps) {
-      if (!emp.officeId || (emp.officeId !== oeb?.id && emp.officeId !== oef?.id)) {
-        await db.update(employees).set({ officeId: oeb?.id || 1 }).where(eq(employees.id, emp.id));
-      }
+        qrCodeData: "DHD-OFFICE-2"
+      });
     }
   } catch (err) {
     console.warn("syncOfficialOfficesInDb error:", err);
@@ -525,13 +468,13 @@ export async function listOffices() {
     const db = getDb();
     if (db) {
       await syncOfficialOfficesInDb(db);
-      const res = await db.select().from(offices).where(eq(offices.active, true));
-      if (res.length > 0) return res;
+      const res = await db.select().from(offices);
+      if (res.length > 0) return res.map(formatOffice);
     }
   } catch (err) {
     console.warn("DB listOffices failed, using fallback:", err);
   }
-  return memoryStore.offices;
+  return memoryStore.offices.map(formatOffice);
 }
 
 export async function createOffice(data: any) {
@@ -542,20 +485,14 @@ export async function createOffice(data: any) {
         .insert(offices)
         .values({
           name: data.name,
-          code: data.code || `OFF-${Math.floor(Math.random() * 1000)}`,
-          city: data.city,
           address: data.address || null,
-          phone: data.phone || null,
           latitude: data.latitude ? String(data.latitude) : null,
           longitude: data.longitude ? String(data.longitude) : null,
-          geofenceRadiusMeters: data.geofenceRadiusMeters || 100,
-          active: true
+          qrCodeData: `DHD-OFFICE-${Math.floor(Math.random() * 10000)}`
         })
         .returning();
       if (newOffice) {
-        memoryStore.offices.push(newOffice);
-        saveLocalStore();
-        return newOffice;
+        return formatOffice(newOffice);
       }
     }
   } catch (err) {
@@ -569,15 +506,15 @@ export async function createOffice(data: any) {
     city: data.city,
     address: data.address || null,
     phone: data.phone || null,
-    latitude: data.latitude || "36.7538",
-    longitude: data.longitude || "3.0588",
+    latitude: data.latitude || "35.8707722",
+    longitude: data.longitude || "7.1101606",
     geofenceRadiusMeters: data.geofenceRadiusMeters || 100,
     active: true,
     createdAt: new Date().toISOString()
   };
   memoryStore.offices.push(newOffice);
   saveLocalStore();
-  return newOffice;
+  return formatOffice(newOffice);
 }
 
 // Attendance
@@ -588,9 +525,9 @@ export async function listAttendance(employeeId?: number) {
       const all = await db.select().from(attendance);
       let list = all;
       if (employeeId) {
-        list = list.filter((a: any) => a.employeeId === Number(employeeId));
+        list = list.filter((a: any) => Number(a.employeeId) === Number(employeeId));
       }
-      if (list.length > 0 || all.length > 0) return list;
+      return list;
     }
   } catch (err) {
     console.warn("DB listAttendance failed, using fallback:", err);
@@ -598,7 +535,7 @@ export async function listAttendance(employeeId?: number) {
 
   let list = memoryStore.attendance;
   if (employeeId) {
-    list = list.filter((a) => a.employeeId === Number(employeeId));
+    list = list.filter((a) => Number(a.employeeId) === Number(employeeId));
   }
   return list;
 }
@@ -606,7 +543,7 @@ export async function listAttendance(employeeId?: number) {
 export async function recordAttendance(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
   const dateStr = data.date || new Date().toISOString().split("T")[0];
-  const checkInDate = data.checkIn ? new Date(data.checkIn) : new Date();
+  const checkInTimeStr = data.checkInTime || new Date().toTimeString().split(" ")[0];
 
   try {
     const db = getDb();
@@ -615,9 +552,12 @@ export async function recordAttendance(data: any) {
         .insert(attendance)
         .values({
           employeeId: Number(data.employeeId),
+          officeId: Number(data.officeId || emp?.officeId || 1),
           date: dateStr,
-          checkIn: checkInDate,
-          status: data.status || "present",
+          checkInTime: checkInTimeStr,
+          checkInLat: data.latitude ? String(data.latitude) : null,
+          checkInLng: data.longitude ? String(data.longitude) : null,
+          isAbsent: data.status === "absent",
           notes: data.notes || null
         })
         .returning();
@@ -626,8 +566,6 @@ export async function recordAttendance(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
-        memoryStore.attendance.unshift(fullRecord);
-        saveLocalStore();
         return fullRecord;
       }
     }
@@ -640,8 +578,7 @@ export async function recordAttendance(data: any) {
     employeeId: Number(data.employeeId),
     employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف",
     date: dateStr,
-    checkIn: checkInDate.toISOString(),
-    checkOut: null,
+    checkInTime: checkInTimeStr,
     status: data.status || "present",
     notes: data.notes || null,
     createdAt: new Date().toISOString()
@@ -660,9 +597,9 @@ export async function listAdvances(employeeId?: number) {
       const all = await db.select().from(advances);
       let list = all;
       if (employeeId) {
-        list = list.filter((a: any) => a.employeeId === Number(employeeId));
+        list = list.filter((a: any) => Number(a.employeeId) === Number(employeeId));
       }
-      if (list.length > 0 || all.length > 0) return list;
+      return list;
     }
   } catch (err) {
     console.warn("DB listAdvances failed, using fallback:", err);
@@ -670,14 +607,13 @@ export async function listAdvances(employeeId?: number) {
 
   let list = memoryStore.advances;
   if (employeeId) {
-    list = list.filter((a) => a.employeeId === Number(employeeId));
+    list = list.filter((a) => Number(a.employeeId) === Number(employeeId));
   }
   return list;
 }
 
 export async function createAdvance(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
-  const reqDate = data.requestDate || new Date().toISOString().split("T")[0];
 
   try {
     const db = getDb();
@@ -688,8 +624,7 @@ export async function createAdvance(data: any) {
           employeeId: Number(data.employeeId),
           amount: String(data.amount),
           reason: data.reason || "",
-          status: "pending",
-          requestDate: reqDate
+          status: "pending"
         })
         .returning();
       if (record) {
@@ -697,8 +632,6 @@ export async function createAdvance(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
-        memoryStore.advances.unshift(fullRecord);
-        saveLocalStore();
         return fullRecord;
       }
     }
@@ -713,7 +646,6 @@ export async function createAdvance(data: any) {
     amount: String(data.amount),
     reason: data.reason || "",
     status: "pending",
-    requestDate: reqDate,
     createdAt: new Date().toISOString()
   };
   memoryStore.advances.unshift(record);
@@ -729,14 +661,11 @@ export async function updateAdvanceStatus(id: number, status: string) {
         .update(advances)
         .set({
           status,
-          approvedAt: status === "approved" ? new Date() : null
+          resolvedAt: new Date()
         })
         .where(eq(advances.id, Number(id)))
         .returning();
       if (updated) {
-        const adv = memoryStore.advances.find((a) => a.id === Number(id));
-        if (adv) adv.status = status;
-        saveLocalStore();
         return updated;
       }
     }
@@ -761,9 +690,9 @@ export async function listLeaveRequests(employeeId?: number) {
       const all = await db.select().from(leaveRequests);
       let list = all;
       if (employeeId) {
-        list = list.filter((l: any) => l.employeeId === Number(employeeId));
+        list = list.filter((l: any) => Number(l.employeeId) === Number(employeeId));
       }
-      if (list.length > 0 || all.length > 0) return list;
+      return list;
     }
   } catch (err) {
     console.warn("DB listLeaveRequests failed, using fallback:", err);
@@ -771,7 +700,7 @@ export async function listLeaveRequests(employeeId?: number) {
 
   let list = memoryStore.leaveRequests;
   if (employeeId) {
-    list = list.filter((l) => l.employeeId === Number(employeeId));
+    list = list.filter((l) => Number(l.employeeId) === Number(employeeId));
   }
   return list;
 }
@@ -789,7 +718,7 @@ export async function createLeaveRequest(data: any) {
           leaveType: data.leaveType || "personal",
           startDate: data.startDate,
           endDate: data.endDate,
-          reason: data.reason || "",
+          description: data.reason || data.description || "",
           status: "pending"
         })
         .returning();
@@ -798,8 +727,6 @@ export async function createLeaveRequest(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
-        memoryStore.leaveRequests.unshift(fullRecord);
-        saveLocalStore();
         return fullRecord;
       }
     }
@@ -829,13 +756,10 @@ export async function updateLeaveRequestStatus(id: number, status: string) {
     if (db) {
       const [updated] = await db
         .update(leaveRequests)
-        .set({ status })
+        .set({ status, resolvedAt: new Date() })
         .where(eq(leaveRequests.id, Number(id)))
         .returning();
       if (updated) {
-        const req = memoryStore.leaveRequests.find((l) => l.id === Number(id));
-        if (req) req.status = status;
-        saveLocalStore();
         return updated;
       }
     }
@@ -860,9 +784,9 @@ export async function listVacationRequests(employeeId?: number) {
       const all = await db.select().from(vacationRequests);
       let list = all;
       if (employeeId) {
-        list = list.filter((v: any) => v.employeeId === Number(employeeId));
+        list = list.filter((v: any) => Number(v.employeeId) === Number(employeeId));
       }
-      if (list.length > 0 || all.length > 0) return list;
+      return list;
     }
   } catch (err) {
     console.warn("DB listVacationRequests failed, using fallback:", err);
@@ -870,7 +794,7 @@ export async function listVacationRequests(employeeId?: number) {
 
   let list = memoryStore.vacationRequests;
   if (employeeId) {
-    list = list.filter((v) => v.employeeId === Number(employeeId));
+    list = list.filter((v) => Number(v.employeeId) === Number(employeeId));
   }
   return list;
 }
@@ -887,8 +811,7 @@ export async function createVacationRequest(data: any) {
           employeeId: Number(data.employeeId),
           startDate: data.startDate,
           endDate: data.endDate,
-          daysRequested: Number(data.daysRequested || 1),
-          reason: data.reason || "",
+          description: data.reason || data.description || "",
           status: "pending"
         })
         .returning();
@@ -897,8 +820,6 @@ export async function createVacationRequest(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
-        memoryStore.vacationRequests.unshift(fullRecord);
-        saveLocalStore();
         return fullRecord;
       }
     }
@@ -928,13 +849,10 @@ export async function updateVacationRequestStatus(id: number, status: string) {
     if (db) {
       const [updated] = await db
         .update(vacationRequests)
-        .set({ status })
+        .set({ status, resolvedAt: new Date() })
         .where(eq(vacationRequests.id, Number(id)))
         .returning();
       if (updated) {
-        const req = memoryStore.vacationRequests.find((v) => v.id === Number(id));
-        if (req) req.status = status;
-        saveLocalStore();
         return updated;
       }
     }
@@ -959,9 +877,9 @@ export async function listViolations(employeeId?: number) {
       const all = await db.select().from(violations);
       let list = all;
       if (employeeId) {
-        list = list.filter((v: any) => v.employeeId === Number(employeeId));
+        list = list.filter((v: any) => Number(v.employeeId) === Number(employeeId));
       }
-      if (list.length > 0 || all.length > 0) return list;
+      return list;
     }
   } catch (err) {
     console.warn("DB listViolations failed, using fallback:", err);
@@ -969,7 +887,7 @@ export async function listViolations(employeeId?: number) {
 
   let list = memoryStore.violations;
   if (employeeId) {
-    list = list.filter((v) => v.employeeId === Number(employeeId));
+    list = list.filter((v) => Number(v.employeeId) === Number(employeeId));
   }
   return list;
 }
@@ -985,10 +903,10 @@ export async function createViolation(data: any) {
         .insert(violations)
         .values({
           employeeId: Number(data.employeeId),
-          type: data.type || "تأخير",
-          deductionAmount: String(data.deductionAmount || 0),
+          violationType: data.type || "تأخير",
+          amount: String(data.deductionAmount || data.amount || 0),
           reason: data.reason || "",
-          date: vDate,
+          violationDate: vDate,
           status: "applied"
         })
         .returning();
@@ -997,8 +915,6 @@ export async function createViolation(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
-        memoryStore.violations.unshift(fullRecord);
-        saveLocalStore();
         return fullRecord;
       }
     }
@@ -1030,9 +946,9 @@ export async function listSalaries(employeeId?: number) {
       const all = await db.select().from(salaries);
       let list = all;
       if (employeeId) {
-        list = list.filter((s: any) => s.employeeId === Number(employeeId));
+        list = list.filter((s: any) => Number(s.employeeId) === Number(employeeId));
       }
-      if (list.length > 0 || all.length > 0) return list;
+      return list;
     }
   } catch (err) {
     console.warn("DB listSalaries failed, using fallback:", err);
@@ -1040,7 +956,7 @@ export async function listSalaries(employeeId?: number) {
 
   let list = memoryStore.salaries;
   if (employeeId) {
-    list = list.filter((s) => s.employeeId === Number(employeeId));
+    list = list.filter((s) => Number(s.employeeId) === Number(employeeId));
   }
   return list;
 }
@@ -1053,9 +969,9 @@ export async function listNotifications(recipientType = "admin", recipientId?: n
       const all = await db.select().from(notifications).where(eq(notifications.recipientType, recipientType));
       let list = all;
       if (recipientId) {
-        list = list.filter((n: any) => n.recipientId === Number(recipientId) || n.recipientId === null);
+        list = list.filter((n: any) => Number(n.recipientEmployeeId) === Number(recipientId) || n.recipientEmployeeId === null);
       }
-      if (list.length > 0 || all.length > 0) return list;
+      return list;
     }
   } catch (err) {
     console.warn("DB listNotifications failed, using fallback:", err);
@@ -1063,7 +979,7 @@ export async function listNotifications(recipientType = "admin", recipientId?: n
 
   let list = memoryStore.notifications.filter((n) => n.recipientType === recipientType);
   if (recipientId) {
-    list = list.filter((n) => n.recipientId === Number(recipientId) || n.recipientId === null);
+    list = list.filter((n) => Number(n.recipientId) === Number(recipientId) || n.recipientId === null);
   }
   return list;
 }
@@ -1072,7 +988,7 @@ export async function markNotificationsRead() {
   try {
     const db = getDb();
     if (db) {
-      await db.update(notifications).set({ read: true });
+      await db.update(notifications).set({ isRead: true });
     }
   } catch (err) {
     console.warn("DB markNotificationsRead failed:", err);
@@ -1111,24 +1027,17 @@ export async function updateSettings(data: any) {
           .where(eq(settings.id, existing[0].id))
           .returning();
         if (updated) {
-          memoryStore.settings = { ...memoryStore.settings, ...updated };
-          saveLocalStore();
           return updated;
         }
       } else {
         const [inserted] = await db
           .insert(settings)
           .values({
-            companyName: data.companyName || "DHD Livraison",
-            currency: data.currency || "DZD",
             language: data.language || "ar",
-            workStartTime: data.workStartTime || "08:00",
-            workEndTime: data.workEndTime || "17:00"
+            darkMode: false
           })
           .returning();
         if (inserted) {
-          memoryStore.settings = { ...memoryStore.settings, ...inserted };
-          saveLocalStore();
           return inserted;
         }
       }
@@ -1156,7 +1065,7 @@ export async function getDashboardStats() {
   const totalEmployees = employeesList.length;
   const activeOffices = officesList.filter((o: any) => o.active).length;
   const today = new Date().toISOString().split("T")[0];
-  const presentToday = attendanceList.filter((a: any) => String(a.date).startsWith(today) && a.status === "present").length;
+  const presentToday = attendanceList.filter((a: any) => String(a.date).startsWith(today) && (a.status === "present" || !a.isAbsent)).length;
   const pendingAdvances = advancesList.filter((a: any) => a.status === "pending").length;
 
   return {
