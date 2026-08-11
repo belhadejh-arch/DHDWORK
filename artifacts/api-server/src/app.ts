@@ -59,7 +59,7 @@ app.get('/api/healthz', (req, res) => {
 });
 
 // Unified Employee Entrance Routes Redirects
-app.get(['/employee', '/employee/login', '/employee/*'], (req, res) => {
+app.use('/employee', (req, res) => {
   res.redirect('/portal/login');
 });
 

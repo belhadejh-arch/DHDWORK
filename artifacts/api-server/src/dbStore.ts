@@ -480,6 +480,20 @@ export async function createOffice(data: any) {
 
 // Attendance
 export async function listAttendance(employeeId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const all = await db.select().from(attendance);
+      let list = all;
+      if (employeeId) {
+        list = list.filter((a: any) => a.employeeId === Number(employeeId));
+      }
+      if (list.length > 0 || all.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn("DB listAttendance failed, using fallback:", err);
+  }
+
   let list = memoryStore.attendance;
   if (employeeId) {
     list = list.filter((a) => a.employeeId === Number(employeeId));
@@ -489,13 +503,43 @@ export async function listAttendance(employeeId?: number) {
 
 export async function recordAttendance(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
+  const dateStr = data.date || new Date().toISOString().split("T")[0];
+  const checkInDate = data.checkIn ? new Date(data.checkIn) : new Date();
+
+  try {
+    const db = getDb();
+    if (db) {
+      const [record] = await db
+        .insert(attendance)
+        .values({
+          employeeId: Number(data.employeeId),
+          date: dateStr,
+          checkIn: checkInDate,
+          status: data.status || "present",
+          notes: data.notes || null
+        })
+        .returning();
+      if (record) {
+        const fullRecord = {
+          ...record,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
+        };
+        memoryStore.attendance.unshift(fullRecord);
+        saveLocalStore();
+        return fullRecord;
+      }
+    }
+  } catch (err) {
+    console.warn("DB recordAttendance failed, using fallback:", err);
+  }
+
   const record = {
     id: memoryStore.attendance.length > 0 ? Math.max(...memoryStore.attendance.map((a) => a.id)) + 1 : 1,
     employeeId: Number(data.employeeId),
     employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف",
-    date: data.date || new Date().toISOString().split("T")[0],
-    checkIn: data.checkIn || new Date().toISOString(),
-    checkOut: data.checkOut || null,
+    date: dateStr,
+    checkIn: checkInDate.toISOString(),
+    checkOut: null,
     status: data.status || "present",
     notes: data.notes || null,
     createdAt: new Date().toISOString()
@@ -508,6 +552,20 @@ export async function recordAttendance(data: any) {
 
 // Advances
 export async function listAdvances(employeeId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const all = await db.select().from(advances);
+      let list = all;
+      if (employeeId) {
+        list = list.filter((a: any) => a.employeeId === Number(employeeId));
+      }
+      if (list.length > 0 || all.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn("DB listAdvances failed, using fallback:", err);
+  }
+
   let list = memoryStore.advances;
   if (employeeId) {
     list = list.filter((a) => a.employeeId === Number(employeeId));
@@ -517,6 +575,35 @@ export async function listAdvances(employeeId?: number) {
 
 export async function createAdvance(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
+  const reqDate = data.requestDate || new Date().toISOString().split("T")[0];
+
+  try {
+    const db = getDb();
+    if (db) {
+      const [record] = await db
+        .insert(advances)
+        .values({
+          employeeId: Number(data.employeeId),
+          amount: String(data.amount),
+          reason: data.reason || "",
+          status: "pending",
+          requestDate: reqDate
+        })
+        .returning();
+      if (record) {
+        const fullRecord = {
+          ...record,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
+        };
+        memoryStore.advances.unshift(fullRecord);
+        saveLocalStore();
+        return fullRecord;
+      }
+    }
+  } catch (err) {
+    console.warn("DB createAdvance failed, using fallback:", err);
+  }
+
   const record = {
     id: memoryStore.advances.length > 0 ? Math.max(...memoryStore.advances.map((a) => a.id)) + 1 : 1,
     employeeId: Number(data.employeeId),
@@ -524,7 +611,7 @@ export async function createAdvance(data: any) {
     amount: String(data.amount),
     reason: data.reason || "",
     status: "pending",
-    requestDate: new Date().toISOString().split("T")[0],
+    requestDate: reqDate,
     createdAt: new Date().toISOString()
   };
   memoryStore.advances.unshift(record);
@@ -533,6 +620,28 @@ export async function createAdvance(data: any) {
 }
 
 export async function updateAdvanceStatus(id: number, status: string) {
+  try {
+    const db = getDb();
+    if (db) {
+      const [updated] = await db
+        .update(advances)
+        .set({
+          status,
+          approvedAt: status === "approved" ? new Date() : null
+        })
+        .where(eq(advances.id, Number(id)))
+        .returning();
+      if (updated) {
+        const adv = memoryStore.advances.find((a) => a.id === Number(id));
+        if (adv) adv.status = status;
+        saveLocalStore();
+        return updated;
+      }
+    }
+  } catch (err) {
+    console.warn("DB updateAdvanceStatus failed, using fallback:", err);
+  }
+
   const adv = memoryStore.advances.find((a) => a.id === Number(id));
   if (adv) {
     adv.status = status;
@@ -544,6 +653,20 @@ export async function updateAdvanceStatus(id: number, status: string) {
 
 // Leave Requests
 export async function listLeaveRequests(employeeId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const all = await db.select().from(leaveRequests);
+      let list = all;
+      if (employeeId) {
+        list = list.filter((l: any) => l.employeeId === Number(employeeId));
+      }
+      if (list.length > 0 || all.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn("DB listLeaveRequests failed, using fallback:", err);
+  }
+
   let list = memoryStore.leaveRequests;
   if (employeeId) {
     list = list.filter((l) => l.employeeId === Number(employeeId));
@@ -553,6 +676,35 @@ export async function listLeaveRequests(employeeId?: number) {
 
 export async function createLeaveRequest(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
+
+  try {
+    const db = getDb();
+    if (db) {
+      const [record] = await db
+        .insert(leaveRequests)
+        .values({
+          employeeId: Number(data.employeeId),
+          leaveType: data.leaveType || "personal",
+          startDate: data.startDate,
+          endDate: data.endDate,
+          reason: data.reason || "",
+          status: "pending"
+        })
+        .returning();
+      if (record) {
+        const fullRecord = {
+          ...record,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
+        };
+        memoryStore.leaveRequests.unshift(fullRecord);
+        saveLocalStore();
+        return fullRecord;
+      }
+    }
+  } catch (err) {
+    console.warn("DB createLeaveRequest failed, using fallback:", err);
+  }
+
   const record = {
     id: memoryStore.leaveRequests.length > 0 ? Math.max(...memoryStore.leaveRequests.map((l) => l.id)) + 1 : 1,
     employeeId: Number(data.employeeId),
@@ -570,6 +722,25 @@ export async function createLeaveRequest(data: any) {
 }
 
 export async function updateLeaveRequestStatus(id: number, status: string) {
+  try {
+    const db = getDb();
+    if (db) {
+      const [updated] = await db
+        .update(leaveRequests)
+        .set({ status })
+        .where(eq(leaveRequests.id, Number(id)))
+        .returning();
+      if (updated) {
+        const req = memoryStore.leaveRequests.find((l) => l.id === Number(id));
+        if (req) req.status = status;
+        saveLocalStore();
+        return updated;
+      }
+    }
+  } catch (err) {
+    console.warn("DB updateLeaveRequestStatus failed, using fallback:", err);
+  }
+
   const req = memoryStore.leaveRequests.find((l) => l.id === Number(id));
   if (req) {
     req.status = status;
@@ -581,6 +752,20 @@ export async function updateLeaveRequestStatus(id: number, status: string) {
 
 // Vacation Requests
 export async function listVacationRequests(employeeId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const all = await db.select().from(vacationRequests);
+      let list = all;
+      if (employeeId) {
+        list = list.filter((v: any) => v.employeeId === Number(employeeId));
+      }
+      if (list.length > 0 || all.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn("DB listVacationRequests failed, using fallback:", err);
+  }
+
   let list = memoryStore.vacationRequests;
   if (employeeId) {
     list = list.filter((v) => v.employeeId === Number(employeeId));
@@ -590,6 +775,35 @@ export async function listVacationRequests(employeeId?: number) {
 
 export async function createVacationRequest(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
+
+  try {
+    const db = getDb();
+    if (db) {
+      const [record] = await db
+        .insert(vacationRequests)
+        .values({
+          employeeId: Number(data.employeeId),
+          startDate: data.startDate,
+          endDate: data.endDate,
+          daysRequested: Number(data.daysRequested || 1),
+          reason: data.reason || "",
+          status: "pending"
+        })
+        .returning();
+      if (record) {
+        const fullRecord = {
+          ...record,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
+        };
+        memoryStore.vacationRequests.unshift(fullRecord);
+        saveLocalStore();
+        return fullRecord;
+      }
+    }
+  } catch (err) {
+    console.warn("DB createVacationRequest failed, using fallback:", err);
+  }
+
   const record = {
     id: memoryStore.vacationRequests.length > 0 ? Math.max(...memoryStore.vacationRequests.map((v) => v.id)) + 1 : 1,
     employeeId: Number(data.employeeId),
@@ -607,6 +821,25 @@ export async function createVacationRequest(data: any) {
 }
 
 export async function updateVacationRequestStatus(id: number, status: string) {
+  try {
+    const db = getDb();
+    if (db) {
+      const [updated] = await db
+        .update(vacationRequests)
+        .set({ status })
+        .where(eq(vacationRequests.id, Number(id)))
+        .returning();
+      if (updated) {
+        const req = memoryStore.vacationRequests.find((v) => v.id === Number(id));
+        if (req) req.status = status;
+        saveLocalStore();
+        return updated;
+      }
+    }
+  } catch (err) {
+    console.warn("DB updateVacationRequestStatus failed, using fallback:", err);
+  }
+
   const req = memoryStore.vacationRequests.find((v) => v.id === Number(id));
   if (req) {
     req.status = status;
@@ -618,6 +851,20 @@ export async function updateVacationRequestStatus(id: number, status: string) {
 
 // Violations
 export async function listViolations(employeeId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const all = await db.select().from(violations);
+      let list = all;
+      if (employeeId) {
+        list = list.filter((v: any) => v.employeeId === Number(employeeId));
+      }
+      if (list.length > 0 || all.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn("DB listViolations failed, using fallback:", err);
+  }
+
   let list = memoryStore.violations;
   if (employeeId) {
     list = list.filter((v) => v.employeeId === Number(employeeId));
@@ -627,6 +874,36 @@ export async function listViolations(employeeId?: number) {
 
 export async function createViolation(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
+  const vDate = data.date || new Date().toISOString().split("T")[0];
+
+  try {
+    const db = getDb();
+    if (db) {
+      const [record] = await db
+        .insert(violations)
+        .values({
+          employeeId: Number(data.employeeId),
+          type: data.type || "تأخير",
+          deductionAmount: String(data.deductionAmount || 0),
+          reason: data.reason || "",
+          date: vDate,
+          status: "applied"
+        })
+        .returning();
+      if (record) {
+        const fullRecord = {
+          ...record,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
+        };
+        memoryStore.violations.unshift(fullRecord);
+        saveLocalStore();
+        return fullRecord;
+      }
+    }
+  } catch (err) {
+    console.warn("DB createViolation failed, using fallback:", err);
+  }
+
   const record = {
     id: memoryStore.violations.length > 0 ? Math.max(...memoryStore.violations.map((v) => v.id)) + 1 : 1,
     employeeId: Number(data.employeeId),
@@ -634,7 +911,7 @@ export async function createViolation(data: any) {
     type: data.type || "تأخير",
     deductionAmount: String(data.deductionAmount || 0),
     reason: data.reason || "",
-    date: data.date || new Date().toISOString().split("T")[0],
+    date: vDate,
     status: "applied",
     createdAt: new Date().toISOString()
   };
@@ -645,6 +922,20 @@ export async function createViolation(data: any) {
 
 // Salaries
 export async function listSalaries(employeeId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const all = await db.select().from(salaries);
+      let list = all;
+      if (employeeId) {
+        list = list.filter((s: any) => s.employeeId === Number(employeeId));
+      }
+      if (list.length > 0 || all.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn("DB listSalaries failed, using fallback:", err);
+  }
+
   let list = memoryStore.salaries;
   if (employeeId) {
     list = list.filter((s) => s.employeeId === Number(employeeId));
@@ -654,6 +945,20 @@ export async function listSalaries(employeeId?: number) {
 
 // Notifications
 export async function listNotifications(recipientType = "admin", recipientId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const all = await db.select().from(notifications).where(eq(notifications.recipientType, recipientType));
+      let list = all;
+      if (recipientId) {
+        list = list.filter((n: any) => n.recipientId === Number(recipientId) || n.recipientId === null);
+      }
+      if (list.length > 0 || all.length > 0) return list;
+    }
+  } catch (err) {
+    console.warn("DB listNotifications failed, using fallback:", err);
+  }
+
   let list = memoryStore.notifications.filter((n) => n.recipientType === recipientType);
   if (recipientId) {
     list = list.filter((n) => n.recipientId === Number(recipientId) || n.recipientId === null);
@@ -662,6 +967,14 @@ export async function listNotifications(recipientType = "admin", recipientId?: n
 }
 
 export async function markNotificationsRead() {
+  try {
+    const db = getDb();
+    if (db) {
+      await db.update(notifications).set({ read: true });
+    }
+  } catch (err) {
+    console.warn("DB markNotificationsRead failed:", err);
+  }
   memoryStore.notifications.forEach((n) => (n.read = true));
   saveLocalStore();
   return true;
@@ -669,10 +982,59 @@ export async function markNotificationsRead() {
 
 // Settings
 export async function getSettings() {
+  try {
+    const db = getDb();
+    if (db) {
+      const res = await db.select().from(settings);
+      if (res.length > 0) return res[0];
+    }
+  } catch (err) {
+    console.warn("DB getSettings failed, using fallback:", err);
+  }
   return memoryStore.settings;
 }
 
 export async function updateSettings(data: any) {
+  try {
+    const db = getDb();
+    if (db) {
+      const existing = await db.select().from(settings);
+      if (existing.length > 0) {
+        const [updated] = await db
+          .update(settings)
+          .set({
+            ...data,
+            updatedAt: new Date()
+          })
+          .where(eq(settings.id, existing[0].id))
+          .returning();
+        if (updated) {
+          memoryStore.settings = { ...memoryStore.settings, ...updated };
+          saveLocalStore();
+          return updated;
+        }
+      } else {
+        const [inserted] = await db
+          .insert(settings)
+          .values({
+            companyName: data.companyName || "DHD Livraison",
+            currency: data.currency || "DZD",
+            language: data.language || "ar",
+            workStartTime: data.workStartTime || "08:00",
+            workEndTime: data.workEndTime || "17:00"
+          })
+          .returning();
+        if (inserted) {
+          memoryStore.settings = { ...memoryStore.settings, ...inserted };
+          saveLocalStore();
+          return inserted;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("DB updateSettings failed, using fallback:", err);
+  }
+
   memoryStore.settings = {
     ...memoryStore.settings,
     ...data,
@@ -684,11 +1046,16 @@ export async function updateSettings(data: any) {
 
 // Stats
 export async function getDashboardStats() {
-  const totalEmployees = memoryStore.employees.length;
-  const activeOffices = memoryStore.offices.filter((o) => o.active).length;
+  const employeesList = await listEmployees();
+  const officesList = await listOffices();
+  const attendanceList = await listAttendance();
+  const advancesList = await listAdvances();
+
+  const totalEmployees = employeesList.length;
+  const activeOffices = officesList.filter((o: any) => o.active).length;
   const today = new Date().toISOString().split("T")[0];
-  const presentToday = memoryStore.attendance.filter((a) => a.date === today && a.status === "present").length;
-  const pendingAdvances = memoryStore.advances.filter((a) => a.status === "pending").length;
+  const presentToday = attendanceList.filter((a: any) => String(a.date).startsWith(today) && a.status === "present").length;
+  const pendingAdvances = advancesList.filter((a: any) => a.status === "pending").length;
 
   return {
     totalEmployees,
