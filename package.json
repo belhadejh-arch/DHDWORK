@@ -16,6 +16,8 @@
     "dev": "tsx server.ts"
   },
   "devDependencies": {
+    "esbuild": "^0.25.0",
+    "esbuild-plugin-pino": "^2.3.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
