@@ -37,26 +37,26 @@ const defaultStore: DataStore = {
   offices: [
     {
       id: 1,
-      name: "المكتب الرئيسي - الجزائر العاصمة",
-      code: "ALG-01",
-      city: "الجزائر",
-      address: "الجزائر الوسطى، العاصمة",
-      phone: "021000001",
-      latitude: "36.7538",
-      longitude: "3.0588",
+      name: "مكتب أم البواقي",
+      code: "OEB-01",
+      city: "أم البواقي",
+      address: "أم البواقي، الجزائر",
+      phone: "032000001",
+      latitude: "35.8707722",
+      longitude: "7.1101606",
       geofenceRadiusMeters: 100,
       active: true,
       createdAt: new Date().toISOString()
     },
     {
       id: 2,
-      name: "فرع وهران",
-      code: "ORN-01",
-      city: "وهران",
-      address: "حي أكيد لطفي، وهران",
-      phone: "041000002",
-      latitude: "35.6971",
-      longitude: "-0.6308",
+      name: "مكتب عين الفكرون",
+      code: "OEF-01",
+      city: "عين الفكرون",
+      address: "عين الفكرون، أم البواقي",
+      phone: "032000002",
+      latitude: "35.9700208",
+      longitude: "6.8771648",
       geofenceRadiusMeters: 150,
       active: true,
       createdAt: new Date().toISOString()
@@ -73,7 +73,7 @@ const defaultStore: DataStore = {
       phone: "0550123456",
       role: "delivery_driver",
       officeId: 1,
-      officeName: "المكتب الرئيسي - الجزائر العاصمة",
+      officeName: "مكتب أم البواقي",
       baseSalary: "45000",
       status: "active",
       qrCodeSecret: "QR-EMP-001-A1",
@@ -91,7 +91,7 @@ const defaultStore: DataStore = {
       phone: "0660987654",
       role: "office_agent",
       officeId: 2,
-      officeName: "فرع وهران",
+      officeName: "مكتب عين الفكرون",
       baseSalary: "50000",
       status: "active",
       qrCodeSecret: "QR-EMP-002-B2",
@@ -418,12 +418,114 @@ export async function deleteEmployee(id: number) {
   return true;
 }
 
+async function syncOfficialOfficesInDb(db: any) {
+  try {
+    const existing = await db.select().from(offices);
+    let oeb = existing.find((o: any) => o.code === "OEB-01" || o.name.includes("أم البواقي"));
+    let oef = existing.find((o: any) => o.code === "OEF-01" || o.name.includes("عين الفكرون"));
+
+    if (!oeb) {
+      const unused = existing.find((o: any) => o.id !== oef?.id && !o.name.includes("عين الفكرون"));
+      if (unused) {
+        const [updated] = await db.update(offices).set({
+          name: "مكتب أم البواقي",
+          code: "OEB-01",
+          city: "أم البواقي",
+          address: "أم البواقي، الجزائر",
+          latitude: "35.8707722",
+          longitude: "7.1101606",
+          geofenceRadiusMeters: 100,
+          active: true
+        }).where(eq(offices.id, unused.id)).returning();
+        oeb = updated;
+      } else {
+        const [inserted] = await db.insert(offices).values({
+          name: "مكتب أم البواقي",
+          code: "OEB-01",
+          city: "أم البواقي",
+          address: "أم البواقي، الجزائر",
+          phone: "032000001",
+          latitude: "35.8707722",
+          longitude: "7.1101606",
+          geofenceRadiusMeters: 100,
+          active: true
+        }).returning();
+        oeb = inserted;
+      }
+    } else {
+      await db.update(offices).set({
+        name: "مكتب أم البواقي",
+        code: "OEB-01",
+        city: "أم البواقي",
+        latitude: "35.8707722",
+        longitude: "7.1101606",
+        active: true
+      }).where(eq(offices.id, oeb.id));
+    }
+
+    if (!oef) {
+      const unused = existing.find((o: any) => o.id !== oeb?.id && !o.name.includes("أم البواقي"));
+      if (unused) {
+        const [updated] = await db.update(offices).set({
+          name: "مكتب عين الفكرون",
+          code: "OEF-01",
+          city: "عين الفكرون",
+          address: "عين الفكرون، أم البواقي",
+          latitude: "35.9700208",
+          longitude: "6.8771648",
+          geofenceRadiusMeters: 150,
+          active: true
+        }).where(eq(offices.id, unused.id)).returning();
+        oef = updated;
+      } else {
+        const [inserted] = await db.insert(offices).values({
+          name: "مكتب عين الفكرون",
+          code: "OEF-01",
+          city: "عين الفكرون",
+          address: "عين الفكرون، أم البواقي",
+          phone: "032000002",
+          latitude: "35.9700208",
+          longitude: "6.8771648",
+          geofenceRadiusMeters: 150,
+          active: true
+        }).returning();
+        oef = inserted;
+      }
+    } else {
+      await db.update(offices).set({
+        name: "مكتب عين الفكرون",
+        code: "OEF-01",
+        city: "عين الفكرون",
+        latitude: "35.9700208",
+        longitude: "6.8771648",
+        active: true
+      }).where(eq(offices.id, oef.id));
+    }
+
+    for (const o of existing) {
+      if (o.id !== oeb?.id && o.id !== oef?.id) {
+        await db.update(offices).set({ active: false }).where(eq(offices.id, o.id));
+      }
+    }
+
+    const allEmps = await db.select().from(employees);
+    for (const emp of allEmps) {
+      if (!emp.officeId || (emp.officeId !== oeb?.id && emp.officeId !== oef?.id)) {
+        await db.update(employees).set({ officeId: oeb?.id || 1 }).where(eq(employees.id, emp.id));
+      }
+    }
+  } catch (err) {
+    console.warn("syncOfficialOfficesInDb error:", err);
+  }
+}
+
 // Offices
 export async function listOffices() {
   try {
     const db = getDb();
     if (db) {
-      const res = await db.select().from(offices);
+      await syncOfficialOfficesInDb(db);
+      const res = await db.select().from(offices).where(eq(offices.active, true));
       if (res.length > 0) return res;
     }
   } catch (err) {
