@@ -3,7 +3,7 @@ services:
     name: dhd-livraison
     runtime: node
     plan: free
-    buildCommand: corepack enable pnpm && pnpm install --frozen-lockfile --prod=false && pnpm run build
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm run build
     startCommand: pnpm start
     healthCheckPath: /healthz
     envVars:

@@ -13,7 +13,7 @@
 
 ## Render Deployment
 
-- Build command: `corepack enable pnpm && pnpm install --frozen-lockfile --prod=false && pnpm run build`
+- Build command: `pnpm install --frozen-lockfile --prod=false && pnpm run build`
 - Start command: `pnpm start`
 - Health check path: `/healthz`
 - Required environment variable: `DATABASE_URL`
