@@ -1,5 +1,5 @@
 import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins } from "../../../lib/db/src/index.js";
-import { eq, and, asc, desc, sql, like } from "drizzle-orm";
+import { eq, and, asc, desc, sql, like, or } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -166,34 +166,20 @@ export async function getEmployeeByCode(code: string) {
   try {
     const db = getDb();
     if (db) {
-      const allEmps = await db.select().from(employees);
-      const allOffices = await db.select().from(offices);
-      const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
+      // Employee login is a hot path. Match the common credentials in SQL so a
+      // login does not load the complete employees table into memory.
+      const directMatches = await db.select().from(employees).where(or(
+        sql`lower(coalesce(${employees.serialNumber}, '')) = ${q}`,
+        sql`lower(coalesce(${employees.phone}, '')) = ${q}`,
+        sql`lower(coalesce(${employees.email}, '')) = ${q}`,
+        sql`lower(coalesce(${employees.passwordHash}, '')) = ${q}`,
+        ...(Number.isInteger(Number(q)) ? [eq(employees.id, Number(q))] : [])
+      )).limit(1);
 
-      const matched = allEmps.find((e: any) => {
-        const serial = String(e.serialNumber || "").toLowerCase();
-        const empCode = String(e.employeeCode || "").toLowerCase();
-        const natId = String(e.nationalId || "").toLowerCase();
-        const phone = String(e.phone || "").toLowerCase();
-        const email = String(e.email || "").toLowerCase();
-        const empId = String(e.id);
-        const fullName = `${e.firstName || ""} ${e.lastName || ""}`.toLowerCase().trim();
-        const pin = String(e.pinCode || e.passwordHash || "");
-
-        return (
-          serial === q ||
-          empCode === q ||
-          natId === q ||
-          phone === q ||
-          email === q ||
-          empId === q ||
-          fullName === q ||
-          pin === q
-        );
-      });
-
-      if (matched) {
-        return formatEmployee(matched, officeMap);
+      if (directMatches[0]) {
+        const allOffices = await db.select().from(offices);
+        const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
+        return formatEmployee(directMatches[0], officeMap);
       }
     }
   } catch (err) {

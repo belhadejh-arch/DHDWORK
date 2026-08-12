@@ -56,6 +56,13 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: {
+      // The imported workspace runs the API on port 5000. Keeping this proxy
+      // local makes employee login work in the Replit preview as well as in
+      // the production path-routed deployment.
+      '/api': 'http://localhost:5000',
+      '/employee': 'http://localhost:5000',
+    },
     fs: {
       strict: true,
     },

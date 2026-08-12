@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "python-base-3.13"]
+modules = ["nodejs-20", "web", "bash", "python-base-3.13", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -20,6 +20,10 @@ author = "agent"
 task = "workflow.run"
 args = "DHD App"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "DHD Frontend"
+
 [[workflows.workflow]]
 name = "DHD App"
 author = "agent"
@@ -31,6 +35,18 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow]]
+name = "DHD Frontend"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=22444 pnpm --filter @workspace/dhd-livraison run dev"
+waitForPort = 22444
 
 [agent]
 stack = "PNPM_WORKSPACE"
