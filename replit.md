@@ -11,6 +11,14 @@
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 
+## Render Deployment
+
+- Build command: `corepack enable pnpm && pnpm install --frozen-lockfile --prod=false && pnpm run build`
+- Start command: `pnpm start`
+- Health check path: `/healthz`
+- Required environment variable: `DATABASE_URL`
+- The repository includes `render.yaml` with the same web-service configuration.
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
