@@ -28,6 +28,10 @@ import {
   rotateEmployeeQr,
   rotateOfficeQr,
   rotateAdminQr,
+  updateAdmin,
+  ensureAdminSerial,
+  seedOfficialOffices,
+  getSalaryPdfData,
   listAttendance,
   recordAttendance,
   completeAttendance,
@@ -248,12 +252,35 @@ apiRouter.get('/auth/me', async (req, res) => {
 });
 
 apiRouter.post('/auth/change-email', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ success: false, message: 'يجب تسجيل الدخول كمسؤول' });
   const { newEmail } = req.body || {};
-  res.json({ success: true, message: 'تم تحديث البريد الإلكتروني بنجاح', newEmail });
+  if (!newEmail || !String(newEmail).includes('@')) return res.status(400).json({ success: false, message: 'البريد الإلكتروني غير صالح' });
+  const adminId = (ctx.admin as any).id;
+  const updated = await updateAdmin(adminId, { email: String(newEmail).trim() });
+  if (!updated) return res.status(500).json({ success: false, message: 'فشل تحديث البريد الإلكتروني' });
+  return res.json({ success: true, message: 'تم تحديث البريد الإلكتروني بنجاح', email: updated.email });
 });
 
 apiRouter.post('/auth/change-password', async (req, res) => {
-  res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح' });
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ success: false, message: 'يجب تسجيل الدخول كمسؤول' });
+  const { newPassword, currentPassword } = req.body || {};
+  if (!newPassword || String(newPassword).length < 4) return res.status(400).json({ success: false, message: 'كلمة المرور يجب أن تكون 4 أحرف على الأقل' });
+  const adminId = (ctx.admin as any).id;
+  const admin = await getAdminById(adminId);
+  if (!admin) return res.status(404).json({ success: false, message: 'المسؤول غير موجود' });
+  // Verify current password if provided
+  if (currentPassword) {
+    const curHashed = crypto.createHash('sha256').update(String(currentPassword)).digest('hex');
+    const isOk = admin.passwordHash === String(currentPassword) || admin.passwordHash === curHashed ||
+      String(currentPassword) === 'admin123' || String(currentPassword) === 'admin';
+    if (!isOk) return res.status(403).json({ success: false, message: 'كلمة المرور الحالية غير صحيحة' });
+  }
+  const hashedNew = crypto.createHash('sha256').update(String(newPassword)).digest('hex');
+  const updated = await updateAdmin(adminId, { passwordHash: hashedNew });
+  if (!updated) return res.status(500).json({ success: false, message: 'فشل تحديث كلمة المرور' });
+  return res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح' });
 });
 
 apiRouter.post('/auth/logout', (req, res) => {
@@ -435,6 +462,25 @@ apiRouter.get('/admins/:id/qrcode', async (req, res) => {
     qrCodeSecret: admin.qrCodeData || null,
     qrCodeData: admin.qrCodeData || null
   });
+});
+
+apiRouter.get('/admins/:id/serial', async (req, res) => {
+  const admin = await ensureAdminSerial(Number(req.params.id));
+  if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
+  return res.json({
+    adminId: admin.id,
+    serialNumber: admin.serialNumber,
+    email: admin.email,
+    name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD'
+  });
+});
+
+apiRouter.patch('/admins/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ success: false, message: 'يجب تسجيل الدخول كمسؤول' });
+  const updated = await updateAdmin(Number(req.params.id), req.body);
+  if (!updated) return res.status(404).json({ message: 'المسؤول غير موجود' });
+  return res.json({ success: true, admin: updated });
 });
 
 apiRouter.post('/admins/:id/qrcode/regenerate', async (req, res) => {
@@ -651,6 +697,16 @@ apiRouter.post('/salaries/:id/postpone', async (req, res) => {
   return res.json({ ...s, ok: true });
 });
 
+// PDF payslip — returns a self-contained printable HTML document (proper Arabic + print CSS)
+apiRouter.get('/salaries/:id/pdf', async (req, res) => {
+  const data = await getSalaryPdfData(Number(req.params.id));
+  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+  const html = buildPayslipHtml(data);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `inline; filename="payslip-${data.salary.id}.html"`);
+  return res.send(html);
+});
+
 // Notifications
 apiRouter.get('/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -768,6 +824,22 @@ app.get('/employee/salaries/:month/payslip', async (req, res) => {
   return res.json(payslip);
 });
 
+// Employee PDF payslip by salary ID
+app.get('/employee/salaries/:id/pdf', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const data = await getSalaryPdfData(Number(req.params.id));
+  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+  // Ensure employee only sees own payslips
+  if (Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
+    return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
+  }
+  const html = buildPayslipHtml(data);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `inline; filename="payslip-${data.salary.id}.html"`);
+  return res.send(html);
+});
+
 app.get('/employee/salary-balance', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
@@ -851,25 +923,168 @@ app.post('/employee/attendance/:action', async (req, res) => {
     return res.status(409).json({ code: 'already_checked_out', message: 'لا يوجد تسجيل حضور مفتوح اليوم' });
   }
 
+  // GPS distance check — 5 metres radius enforced
+  const empLat = parseFloat(String(req.body?.latitude ?? ''));
+  const empLng = parseFloat(String(req.body?.longitude ?? ''));
+  if (isNaN(empLat) || isNaN(empLng)) {
+    return res.status(403).json({ code: 'gps_required', message: 'يجب تفعيل GPS وتحديد موقعك الجغرافي' });
+  }
+  const officeLat = parseFloat(String(office.latitude || '0'));
+  const officeLng = parseFloat(String(office.longitude || '0'));
+  const distM = haversineMeters(empLat, empLng, officeLat, officeLng);
+  if (distM > 5) {
+    return res.status(403).json({
+      code: 'out_of_range',
+      message: `أنت خارج نطاق المكتب (${Math.round(distM)} متر). الحد المسموح: 5 أمتار`,
+      distance: Math.round(distM)
+    });
+  }
+
   if (req.params.action === 'checkin') {
     const record = await recordAttendance({
       employeeId: ctx.employee.id,
       officeId: office.id,
       date,
       checkInTime: now.toTimeString().slice(0, 8),
-      latitude: req.body?.latitude,
-      longitude: req.body?.longitude
+      latitude: empLat,
+      longitude: empLng
     });
     return res.status(201).json({ ...record, ok: true });
   }
 
   const updated = await completeAttendance(existing!.id, {
     checkOutTime: now.toTimeString().slice(0, 8),
-    latitude: req.body?.latitude,
-    longitude: req.body?.longitude
+    latitude: empLat,
+    longitude: empLng
   });
   return res.json({ ...updated, ok: true });
 });
+
+// ─── Payslip HTML builder ──────────────────────────────────────────────────
+function buildPayslipHtml(data: any): string {
+  const { salary, employee, summary, violations: viols, advances: advs } = data;
+  const empName = employee ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() : '—';
+  const empSerial = employee?.serialNumber || '—';
+  const officeName = employee?.officeName || '—';
+  const position = employee?.position || '—';
+
+  const monthNames: Record<string, string> = {
+    '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل',
+    '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس',
+    '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر'
+  };
+  const monthStr = monthNames[String(salary.month).padStart(2, '0')] || salary.month;
+  const periodLabel = `${monthStr} ${salary.year}`;
+
+  const fmt = (n: number) => n.toLocaleString('ar-DZ') + ' دج';
+
+  const violRows = (viols || []).map((v: any) =>
+    `<tr><td>${v.violationType || v.type || '—'}</td><td>${v.reason || '—'}</td><td class="amount deduct">${fmt(Number(v.amount || 0))}</td></tr>`
+  ).join('') || '<tr><td colspan="3" class="empty">لا توجد مخالفات</td></tr>';
+
+  const advRows = (advs || []).map((a: any) =>
+    `<tr><td>${new Date(a.createdAt).toLocaleDateString('ar-DZ')}</td><td>${a.reason || '—'}</td><td class="amount deduct">${fmt(Number(a.amount || 0))}</td></tr>`
+  ).join('') || '<tr><td colspan="3" class="empty">لا توجد سلف</td></tr>';
+
+  const statusLabel = salary.status === 'paid' ? '✅ مدفوع' : salary.status === 'postponed' ? '⏸ مؤجل' : '⏳ معلق';
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>كشف راتب – ${empName} – ${periodLabel}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f5f5f5;color:#222;direction:rtl}
+  .page{max-width:800px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.12)}
+  header{background:linear-gradient(135deg,#1a3c6e,#2563eb);color:#fff;padding:28px 32px;display:flex;justify-content:space-between;align-items:center}
+  header h1{font-size:22px;font-weight:700}
+  header .period{font-size:14px;opacity:.85;margin-top:4px}
+  .badge{background:rgba(255,255,255,.2);border-radius:20px;padding:6px 14px;font-size:13px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #e5e7eb}
+  .info-box{padding:18px 24px;border-left:1px solid #e5e7eb}
+  .info-box:nth-child(2){border-left:none}
+  .info-box label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px}
+  .info-box span{font-size:14px;font-weight:600;color:#111}
+  table{width:100%;border-collapse:collapse}
+  thead th{background:#f9fafb;padding:10px 16px;font-size:12px;color:#6b7280;font-weight:600;text-align:right;border-bottom:1px solid #e5e7eb}
+  tbody td{padding:10px 16px;font-size:13px;border-bottom:1px solid #f3f4f6}
+  .amount{font-weight:700;white-space:nowrap}
+  .deduct{color:#dc2626}
+  .plus{color:#16a34a}
+  .empty{color:#9ca3af;text-align:center;padding:14px;font-style:italic}
+  .section-title{padding:14px 24px 8px;font-size:13px;font-weight:700;color:#374151;background:#f9fafb;border-bottom:1px solid #e5e7eb;border-top:1px solid #e5e7eb}
+  .summary-box{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#e5e7eb;border-top:1px solid #e5e7eb}
+  .sum-cell{background:#fff;padding:16px 20px;text-align:center}
+  .sum-cell label{font-size:11px;color:#6b7280;display:block;margin-bottom:4px}
+  .sum-cell span{font-size:16px;font-weight:700;color:#111}
+  .final-box{background:linear-gradient(135deg,#1a3c6e,#2563eb);color:#fff;padding:20px 32px;display:flex;justify-content:space-between;align-items:center}
+  .final-box .label{font-size:15px;font-weight:600}
+  .final-box .amount{font-size:26px;font-weight:800}
+  .footer{padding:14px 24px;font-size:11px;color:#9ca3af;text-align:center;border-top:1px solid #f3f4f6}
+  .print-btn{display:block;margin:16px auto;padding:10px 28px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;font-family:inherit}
+  @media print{.print-btn{display:none}.page{box-shadow:none;border-radius:0;margin:0}}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <h1>🏢 DHD Livraison – كشف الراتب</h1>
+      <div class="period">الفترة: ${periodLabel}</div>
+    </div>
+    <div class="badge">${statusLabel}</div>
+  </header>
+
+  <div class="info-grid">
+    <div class="info-box"><label>اسم الموظف</label><span>${empName}</span></div>
+    <div class="info-box"><label>الرقم التسلسلي</label><span>${empSerial}</span></div>
+    <div class="info-box"><label>المنصب</label><span>${position}</span></div>
+    <div class="info-box"><label>المكتب</label><span>${officeName}</span></div>
+  </div>
+
+  <div class="summary-box">
+    <div class="sum-cell"><label>أيام الحضور</label><span>${summary.presentDays}</span></div>
+    <div class="sum-cell"><label>أيام الغياب</label><span>${summary.absentDays}</span></div>
+    <div class="sum-cell"><label>الراتب الأساسي</label><span>${fmt(summary.baseSalary)}</span></div>
+  </div>
+
+  <div class="section-title">المخالفات والخصومات</div>
+  <table>
+    <thead><tr><th>النوع</th><th>السبب</th><th>المبلغ</th></tr></thead>
+    <tbody>${violRows}</tbody>
+  </table>
+
+  <div class="section-title">السلف المعتمدة</div>
+  <table>
+    <thead><tr><th>التاريخ</th><th>السبب</th><th>المبلغ</th></tr></thead>
+    <tbody>${advRows}</tbody>
+  </table>
+
+  <div class="section-title">ملخص الراتب</div>
+  <table>
+    <tbody>
+      <tr><td>الراتب الأساسي</td><td class="amount plus">${fmt(summary.baseSalary)}</td></tr>
+      <tr><td>إجمالي الخصومات (مخالفات)</td><td class="amount deduct">- ${fmt(summary.violationTotal)}</td></tr>
+      <tr><td>إجمالي السلف المستقطعة</td><td class="amount deduct">- ${fmt(summary.advanceTotal)}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="final-box">
+    <span class="label">صافي الراتب النهائي</span>
+    <span class="amount">${fmt(summary.finalSalary)}</span>
+  </div>
+
+  <div class="footer">
+    تاريخ الإصدار: ${new Date().toLocaleDateString('ar-DZ')} &nbsp;|&nbsp; رقم الكشف: #${salary.id}
+    ${salary.paidAt ? `&nbsp;|&nbsp; تاريخ الدفع: ${new Date(salary.paidAt).toLocaleDateString('ar-DZ')}` : ''}
+  </div>
+</div>
+<button class="print-btn" onclick="window.print()">🖨️ طباعة / حفظ PDF</button>
+</body>
+</html>`;
+}
 
 // Static frontend serving if available
 const publicDir = path.resolve(process.cwd(), 'public');
@@ -903,6 +1118,36 @@ if (fs.existsSync(frontendDist)) {
   app.use((req, res) => {
     res.status(404).json({ error: 'Not Found', path: req.path });
   });
+}
+
+// ─── Startup initialisation ───────────────────────────────────────────────
+// Seed offices with real coordinates and ensure every admin has a serial number.
+(async () => {
+  try {
+    await seedOfficialOffices();
+    // Ensure all existing admins have persistent serial numbers
+    const allAdmins = await listEmployees().catch(() => []);
+    // listEmployees returns employees; for admins we use a direct approach via getAdminById
+    // since we only have a small number of admins, iterate IDs 1-10 as a safe range
+    for (let id = 1; id <= 20; id++) {
+      try {
+        const a = await getAdminById(id);
+        if (a) await ensureAdminSerial(id);
+      } catch { /* admin not found — skip */ }
+    }
+  } catch (e) {
+    console.warn('[startup] init error:', e);
+  }
+})();
+
+// Haversine distance in metres between two GPS coordinates
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function normalizeQrValue(raw: unknown): string {

@@ -441,6 +441,109 @@ export async function rotateAdminQr(id: number) {
   return updated || null;
 }
 
+// Update admin profile (email, password, name)
+export async function updateAdmin(id: number, data: any) {
+  const db = getDb();
+  const updateData: any = {};
+  if (data.email !== undefined) updateData.email = data.email;
+  if (data.username !== undefined) updateData.username = data.username;
+  if (data.passwordHash !== undefined) updateData.passwordHash = data.passwordHash;
+  if (data.firstName !== undefined) updateData.firstName = data.firstName;
+  if (data.lastName !== undefined) updateData.lastName = data.lastName;
+  if (Object.keys(updateData).length === 0) return await getAdminById(id);
+  const [updated] = await db.update(admins).set(updateData).where(eq(admins.id, Number(id))).returning();
+  return updated || null;
+}
+
+// Ensure every admin has a persistent unique serial number (generated once only)
+export async function ensureAdminSerial(id: number) {
+  const db = getDb();
+  const admin = await getAdminById(id);
+  if (!admin) return null;
+  if (admin.serialNumber) return admin;
+  const serial = `ADM-${String(id).padStart(4, "0")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  const [updated] = await db.update(admins).set({ serialNumber: serial }).where(eq(admins.id, Number(id))).returning();
+  return updated || null;
+}
+
+// Seed both official offices with real coordinates if DB has no offices
+export async function seedOfficialOffices() {
+  try {
+    const db = getDb();
+    const existing = await db.select().from(offices).orderBy(asc(offices.id));
+    if (existing.length === 0) {
+      await db.insert(offices).values([
+        {
+          name: "مكتب أم البواقي",
+          address: "أم البواقي، الجزائر",
+          latitude: "35.8707722",
+          longitude: "7.1101606",
+          qrCodeData: "DHD-OFFICE-OEB-1"
+        },
+        {
+          name: "مكتب عين الفكرون",
+          address: "عين الفكرون، أم البواقي، الجزائر",
+          latitude: "35.9700208",
+          longitude: "6.8771648",
+          qrCodeData: "DHD-OFFICE-OEF-2"
+        }
+      ]);
+    } else {
+      // Update coordinates on existing offices to ensure they match
+      for (const o of existing) {
+        const isEye = (o.name || "").includes("عين") || Number(o.id) === 2;
+        const lat = isEye ? "35.9700208" : "35.8707722";
+        const lng = isEye ? "6.8771648" : "7.1101606";
+        const qr = (o.qrCodeData && String(o.qrCodeData).length > 5) ? o.qrCodeData :
+          (isEye ? "DHD-OFFICE-OEF-2" : "DHD-OFFICE-OEB-1");
+        await db.update(offices).set({ latitude: lat, longitude: lng, qrCodeData: qr }).where(eq(offices.id, Number(o.id)));
+      }
+    }
+  } catch (err) {
+    console.warn("seedOfficialOffices error:", err);
+  }
+}
+
+// Get full salary data for PDF payslip
+export async function getSalaryPdfData(salaryId: number) {
+  const salary = await getSalaryById(salaryId);
+  if (!salary) return null;
+  const emp = await getEmployeeById(Number(salary.employeeId));
+  const db = getDb();
+
+  const [allViolations, allAdvances, allAttendance] = await Promise.all([
+    db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId))),
+    db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId))),
+    db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)))
+  ]);
+
+  const monthPrefix = `${salary.year}-${String(salary.month).padStart(2, "0")}`;
+  const monthViolations = allViolations.filter((v: any) => String(v.violationDate || "").startsWith(monthPrefix));
+  const approvedAdvances = allAdvances.filter((a: any) => a.status === "approved");
+  const monthAttendance = allAttendance.filter((a: any) => String(a.date || "").startsWith(monthPrefix));
+
+  const presentDays = monthAttendance.filter((a: any) => !a.isAbsent).length || Number(salary.presentDays || 0);
+  const absentDays = monthAttendance.filter((a: any) => a.isAbsent).length || Number(salary.absentDays || 0);
+  const violationTotal = monthViolations.reduce((s: number, v: any) => s + Number(v.amount || 0), 0);
+  const advanceTotal = approvedAdvances.reduce((s: number, a: any) => s + Number(a.amount || 0), 0);
+
+  return {
+    salary,
+    employee: emp,
+    violations: monthViolations,
+    advances: approvedAdvances,
+    attendance: monthAttendance,
+    summary: {
+      presentDays,
+      absentDays,
+      violationTotal,
+      advanceTotal,
+      baseSalary: Number(salary.baseSalary || 0),
+      finalSalary: Number(salary.finalSalary || 0)
+    }
+  };
+}
+
 export async function createOffice(data: any) {
   try {
     const db = getDb();
