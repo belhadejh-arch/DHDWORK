@@ -3,7 +3,7 @@ services:
     name: dhd-livraison
     runtime: node
     plan: free
-    buildCommand: npm install -g pnpm@10.26.1 && pnpm install --frozen-lockfile --prod=false && pnpm run build
+    buildCommand: npm install --prefix /tmp/pnpm-cli pnpm@10.26.1 && PATH=/tmp/pnpm-cli/node_modules/.bin:$PATH pnpm install --frozen-lockfile --prod=false && PATH=/tmp/pnpm-cli/node_modules/.bin:$PATH pnpm run build
     startCommand: pnpm start
     healthCheckPath: /healthz
     envVars:
