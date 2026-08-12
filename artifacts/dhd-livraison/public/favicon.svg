@@ -1,3 +1,22 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Orange rounded square background -->
+  <rect width="512" height="512" rx="96" fill="#FF8C00"/>
+  <!-- Envelope body -->
+  <rect x="96" y="176" width="320" height="220" rx="18" fill="white"/>
+  <!-- Envelope flap (triangle top) -->
+  <polygon points="96,176 256,296 416,176" fill="#FFB347"/>
+  <!-- Envelope flap outline -->
+  <polyline points="96,176 256,296 416,176" fill="none" stroke="white" stroke-width="10"/>
+  <!-- Wings left -->
+  <ellipse cx="78" cy="260" rx="62" ry="22" fill="white" opacity="0.9" transform="rotate(-20 78 260)"/>
+  <ellipse cx="60" cy="288" rx="48" ry="16" fill="white" opacity="0.7" transform="rotate(-15 60 288)"/>
+  <!-- Wings right (mirror) -->
+  <ellipse cx="434" cy="260" rx="62" ry="22" fill="white" opacity="0.9" transform="rotate(20 434 260)"/>
+  <ellipse cx="452" cy="288" rx="48" ry="16" fill="white" opacity="0.7" transform="rotate(15 452 288)"/>
+  <!-- D letter -->
+  <text x="140" y="430" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="90" fill="#FF8C00">D</text>
+  <!-- H letter -->
+  <text x="220" y="430" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="90" fill="#FF8C00">H</text>
+  <!-- D letter -->
+  <text x="305" y="430" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="90" fill="#FF8C00">D</text>
 </svg>
