@@ -1,0 +1,300 @@
+/*
+ * DHD Livraison — Contrast & Readability Fix
+ * Improves text legibility across all pages, both light and dark mode.
+ * Does NOT change layout, branding colours, or any functionality.
+ */
+
+/* ─── 1. Root CSS Variable Overrides (Light Mode) ──────────────────────────
+   Raise muted-foreground so small/secondary text meets WCAG AA (≥ 4.5:1).   */
+:root {
+  --muted-foreground: 216 22% 36% !important;   /* was 46% lightness → 36% */
+}
+
+/* ─── 2. Dark Mode Variable Overrides ────────────────────────────────────── */
+.dark {
+  --muted-foreground: 215 22% 75% !important;   /* was 69% → 75% (brighter) */
+  --foreground:       214 35% 97% !important;   /* near-white text           */
+  --card-foreground:  214 35% 97% !important;
+  --popover-foreground: 214 35% 97% !important;
+  --sidebar-foreground: 214 35% 97% !important;
+  --sidebar-accent-foreground: 214 35% 97% !important;
+}
+
+/* ─── 3. Global Text Baseline ────────────────────────────────────────────── */
+body,
+#root {
+  color: hsl(var(--foreground));
+}
+
+/* ─── 4. Typography — Headings & Paragraphs ─────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  color: hsl(var(--foreground)) !important;
+}
+p, span, li, td, th, label, legend, figcaption, blockquote {
+  /* inherit so dark-mode toggling still works, but never become invisible */
+  color: inherit;
+}
+
+/* ─── 5. Cards ───────────────────────────────────────────────────────────── */
+[class*="card"] {
+  color: hsl(var(--card-foreground));
+}
+[class*="card"] h1,
+[class*="card"] h2,
+[class*="card"] h3,
+[class*="card"] p,
+[class*="card"] span,
+[class*="card"] label {
+  color: hsl(var(--card-foreground)) !important;
+}
+
+/* ─── 6. Sidebar — always white text on dark sidebar ─────────────────────── */
+[class*="sidebar"] {
+  color: hsl(var(--sidebar-foreground)) !important;
+}
+[class*="sidebar"] span,
+[class*="sidebar"] p,
+[class*="sidebar"] a,
+[class*="sidebar"] button {
+  color: hsl(var(--sidebar-foreground)) !important;
+}
+
+/* ─── 7. Tables ──────────────────────────────────────────────────────────── */
+thead th {
+  color: hsl(var(--foreground)) !important;
+  font-weight: 600;
+}
+tbody td {
+  color: hsl(var(--foreground)) !important;
+}
+/* dark mode table rows */
+.dark thead th { color: hsl(214 35% 97%) !important; }
+.dark tbody td  { color: hsl(214 35% 93%) !important; }
+
+/* ─── 8. Buttons ─────────────────────────────────────────────────────────── */
+/* Primary (orange) → white text */
+button[class*="bg-primary"],
+[class*="btn"][class*="primary"],
+[data-variant="default"] {
+  color: #fff !important;
+}
+/* Destructive → white text */
+button[class*="destructive"],
+[class*="btn"][class*="destructive"] {
+  color: #fff !important;
+}
+/* Ghost / outline → foreground text (never invisible) */
+button[class*="ghost"],
+button[class*="outline"] {
+  color: hsl(var(--foreground)) !important;
+}
+.dark button[class*="ghost"],
+.dark button[class*="outline"] {
+  color: hsl(var(--foreground)) !important;
+}
+/* Ensure disabled buttons still have readable text */
+button:disabled,
+[disabled] {
+  opacity: 0.55 !important;
+}
+
+/* ─── 9. Form Inputs & Selects ───────────────────────────────────────────── */
+input,
+textarea,
+select {
+  color: hsl(var(--foreground)) !important;
+  background-color: hsl(var(--background)) !important;
+}
+.dark input,
+.dark textarea,
+.dark select {
+  color: hsl(214 35% 97%) !important;
+  background-color: hsl(var(--input)) !important;
+}
+/* Placeholders — must be distinct but still legible */
+input::placeholder,
+textarea::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 1 !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: hsl(215 20% 62%) !important;
+  opacity: 1 !important;
+}
+/* Labels */
+label {
+  color: hsl(var(--foreground)) !important;
+}
+.dark label {
+  color: hsl(214 35% 97%) !important;
+}
+
+/* ─── 10. Modals & Dialogs (Radix / shadcn) ──────────────────────────────── */
+[role="dialog"],
+[data-radix-popper-content-wrapper],
+[class*="dialog-content"],
+[class*="DialogContent"] {
+  color: hsl(var(--foreground)) !important;
+}
+.dark [role="dialog"],
+.dark [data-radix-popper-content-wrapper],
+.dark [class*="dialog-content"] {
+  color: hsl(214 35% 97%) !important;
+}
+/* Dialog title */
+[class*="DialogTitle"],
+[class*="dialog-title"] {
+  color: hsl(var(--foreground)) !important;
+  font-weight: 700;
+}
+/* Dialog description */
+[class*="DialogDescription"],
+[class*="dialog-description"] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* ─── 11. Dropdowns & Popovers ───────────────────────────────────────────── */
+[role="menu"],
+[role="listbox"],
+[role="option"],
+[class*="DropdownMenuContent"],
+[class*="SelectContent"],
+[class*="PopoverContent"] {
+  color: hsl(var(--popover-foreground)) !important;
+}
+.dark [role="menu"],
+.dark [role="listbox"],
+.dark [class*="DropdownMenuContent"],
+.dark [class*="SelectContent"] {
+  color: hsl(214 35% 97%) !important;
+}
+[role="menuitem"],
+[role="option"] {
+  color: hsl(var(--popover-foreground)) !important;
+}
+
+/* ─── 12. Badges ─────────────────────────────────────────────────────────── */
+/* Ensure every badge variant has legible text */
+[class*="badge"][class*="default"] { color: #fff !important; }
+[class*="badge"][class*="secondary"] {
+  color: hsl(var(--secondary-foreground)) !important;
+}
+[class*="badge"][class*="outline"] {
+  color: hsl(var(--foreground)) !important;
+}
+[class*="badge"][class*="destructive"] { color: #fff !important; }
+
+/* ─── 13. Notifications / Toasts ─────────────────────────────────────────── */
+[class*="toast"],
+[class*="Toaster"],
+[class*="notification"],
+[data-sonner-toast] {
+  color: hsl(var(--foreground)) !important;
+}
+.dark [class*="toast"],
+.dark [data-sonner-toast] {
+  color: hsl(214 35% 97%) !important;
+}
+[data-sonner-toast] [class*="title"] { font-weight: 600; }
+[data-sonner-toast] [class*="description"] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* ─── 14. Select / Combobox Items ────────────────────────────────────────── */
+[class*="SelectItem"],
+[class*="ComboboxItem"],
+[class*="CommandItem"] {
+  color: hsl(var(--popover-foreground)) !important;
+}
+
+/* ─── 15. Login Page Specific ────────────────────────────────────────────── */
+/* Dark left panel — keep white text legible */
+.dark [class*="bg-sidebar"],
+[class*="bg-sidebar"] {
+  color: hsl(var(--sidebar-foreground)) !important;
+}
+/* Light right panel — dark text */
+[class*="login"] label,
+[class*="auth"] label {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* ─── 16. Stats / Metric Cards ───────────────────────────────────────────── */
+/* Numbers on coloured stat cards (gradient backgrounds) */
+[class*="stat"] h3,
+[class*="stat"] p,
+[class*="metric"] h3,
+[class*="metric"] p {
+  color: inherit;
+  text-shadow: none;
+}
+/* White text on dark/coloured gradient cards */
+[style*="background:linear-gradient"] *,
+[style*="background: linear-gradient"] * {
+  color: #fff !important;
+}
+
+/* ─── 17. Opacity Classes — prevent text from becoming invisible ──────────── */
+/* Let opacity-50 / opacity-60 remain for icons but ensure text stays above 0.5 */
+.opacity-30 { opacity: 0.55 !important; }
+.opacity-40 { opacity: 0.60 !important; }
+
+/* ─── 18. Dark mode — general sweep ─────────────────────────────────────── */
+.dark {
+  color-scheme: dark;
+}
+.dark * {
+  /* Catch-all: any element that forgot to set color inherits the dark foreground.
+     Only applies when no more-specific rule already sets color. */
+  color: inherit;
+}
+/* Ensure white backgrounds in dark mode don't trap dark text */
+.dark [class*="bg-white"],
+.dark [style*="background:#fff"],
+.dark [style*="background-color:#fff"],
+.dark [style*="background-color: #fff"] {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--card-foreground)) !important;
+}
+
+/* ─── 19. Table striping / hover — keep text readable ───────────────────── */
+tr:hover td {
+  color: hsl(var(--foreground)) !important;
+}
+.dark tr:hover td {
+  color: hsl(214 35% 97%) !important;
+}
+
+/* ─── 20. Scrollbar text in select boxes ─────────────────────────────────── */
+option {
+  color: #111;
+  background: #fff;
+}
+.dark option {
+  color: #f0f4ff;
+  background: hsl(222 32% 14%);
+}
+
+/* ─── 21. Charts — axis & legend text ────────────────────────────────────── */
+.recharts-cartesian-axis-tick text,
+.recharts-legend-item-text {
+  fill: hsl(var(--foreground)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+.dark .recharts-cartesian-axis-tick text,
+.dark .recharts-legend-item-text {
+  fill: hsl(214 35% 90%) !important;
+}
+
+/* ─── 22. Employee portal — mobile card text ─────────────────────────────── */
+/* Ensure status chips are readable */
+[class*="status-"] {
+  font-weight: 600;
+}
+
+/* ─── 23. Accessibility — focus rings ────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
