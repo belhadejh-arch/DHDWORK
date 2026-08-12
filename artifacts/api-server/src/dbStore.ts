@@ -1008,6 +1008,162 @@ export async function updateSettings(data: any) {
   return memoryStore.settings;
 }
 
+// Office CRUD additions
+export async function updateOffice(id: number, data: any) {
+  const db = getDb();
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.address !== undefined) updateData.address = data.address;
+  if (data.latitude !== undefined) updateData.latitude = String(data.latitude);
+  if (data.longitude !== undefined) updateData.longitude = String(data.longitude);
+  if (data.qrCodeData !== undefined) updateData.qrCodeData = data.qrCodeData;
+  const [updated] = await db.update(offices).set(updateData).where(eq(offices.id, Number(id))).returning();
+  return updated ? formatOffice(updated) : null;
+}
+
+export async function deleteOffice(id: number) {
+  const db = getDb();
+  await db.delete(offices).where(eq(offices.id, Number(id)));
+  return true;
+}
+
+// Former employees
+export async function listFormerEmployees() {
+  const db = getDb();
+  const allEmps = await db.select().from(employees);
+  const allOffices = await db.select().from(offices);
+  const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+  return allEmps
+    .filter((e: any) => e.deletedAt != null || e.isActive === false)
+    .map((e: any) => formatEmployee(e, officeMap));
+}
+
+export async function restoreEmployee(id: number) {
+  const db = getDb();
+  const [updated] = await db
+    .update(employees)
+    .set({ isActive: true, deletedAt: null, deletionReason: null, updatedAt: new Date() })
+    .where(eq(employees.id, Number(id)))
+    .returning();
+  if (!updated) return null;
+  const allOffices = await db.select().from(offices);
+  return formatEmployee(updated, new Map(allOffices.map((o: any) => [Number(o.id), o.name])));
+}
+
+export async function permanentlyDeleteEmployee(id: number) {
+  const db = getDb();
+  await db.delete(employees).where(eq(employees.id, Number(id)));
+  return true;
+}
+
+// Attendance CRUD
+export async function getAttendanceById(id: number) {
+  const db = getDb();
+  const res = await db.select().from(attendance).where(eq(attendance.id, Number(id)));
+  return res[0] || null;
+}
+
+export async function updateAttendance(id: number, data: any) {
+  const db = getDb();
+  const updateData: any = {};
+  if (data.checkInTime !== undefined) updateData.checkInTime = data.checkInTime;
+  if (data.checkOutTime !== undefined) updateData.checkOutTime = data.checkOutTime;
+  if (data.isAbsent !== undefined) updateData.isAbsent = data.isAbsent;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+  const [updated] = await db.update(attendance).set(updateData).where(eq(attendance.id, Number(id))).returning();
+  return updated || null;
+}
+
+export async function deleteAttendance(id: number) {
+  const db = getDb();
+  await db.delete(attendance).where(eq(attendance.id, Number(id)));
+  return true;
+}
+
+// Violations CRUD
+export async function getViolationById(id: number) {
+  const db = getDb();
+  const res = await db.select().from(violations).where(eq(violations.id, Number(id)));
+  return res[0] || null;
+}
+
+export async function updateViolation(id: number, data: any) {
+  const db = getDb();
+  const updateData: any = { updatedAt: new Date() };
+  if (data.reason !== undefined) updateData.reason = data.reason;
+  if (data.type !== undefined || data.violationType !== undefined) updateData.violationType = data.violationType || data.type;
+  if (data.amount !== undefined || data.deductionAmount !== undefined) updateData.amount = String(data.amount || data.deductionAmount);
+  if (data.status !== undefined) updateData.status = data.status;
+  const [updated] = await db.update(violations).set(updateData).where(eq(violations.id, Number(id))).returning();
+  return updated || null;
+}
+
+export async function deleteViolation(id: number) {
+  const db = getDb();
+  await db.delete(violations).where(eq(violations.id, Number(id)));
+  return true;
+}
+
+// Salaries
+export async function getSalaryById(id: number) {
+  const db = getDb();
+  const res = await db.select().from(salaries).where(eq(salaries.id, Number(id)));
+  return res[0] || null;
+}
+
+export async function createSalary(data: any) {
+  const db = getDb();
+  const emp = await getEmployeeById(Number(data.employeeId));
+  const values: any = {
+    employeeId: Number(data.employeeId),
+    month: data.month || String(new Date().getMonth() + 1).padStart(2, '0'),
+    year: data.year ? Number(data.year) : new Date().getFullYear(),
+    baseSalary: String(data.baseSalary || emp?.baseSalary || 0),
+    finalSalary: String(data.finalSalary || data.baseSalary || emp?.baseSalary || 0),
+    status: 'pending'
+  };
+  if (data.presentDays != null) values.presentDays = Number(data.presentDays);
+  if (data.absentDays != null) values.absentDays = Number(data.absentDays);
+  const [record] = await db.insert(salaries).values(values).returning();
+  return record ? { ...record, employeeName: emp ? `${emp.firstName} ${emp.lastName}` : '' } : null;
+}
+
+export async function updateSalaryStatus(id: number, status: string, extra?: any) {
+  const db = getDb();
+  const updateData: any = { status };
+  if (status === 'paid') updateData.paidAt = new Date();
+  if (extra?.postponedUntil) updateData.postponedUntil = new Date(extra.postponedUntil);
+  const [updated] = await db.update(salaries).set(updateData).where(eq(salaries.id, Number(id))).returning();
+  return updated || null;
+}
+
+export async function getEmployeeSalaryBalance(employeeId: number) {
+  const db = getDb();
+  const empSalaries = await db.select().from(salaries).where(eq(salaries.employeeId, Number(employeeId)));
+  const totalPaid = empSalaries.filter((s: any) => s.status === 'paid').reduce((sum: number, s: any) => sum + Number(s.finalSalary || 0), 0);
+  const totalPending = empSalaries.filter((s: any) => s.status === 'pending').reduce((sum: number, s: any) => sum + Number(s.finalSalary || 0), 0);
+  const emp = await getEmployeeById(employeeId);
+  return {
+    employeeId,
+    baseSalary: emp?.baseSalary || 0,
+    totalPaid,
+    totalPending,
+    balance: totalPending
+  };
+}
+
+// Notifications
+export async function markSingleNotificationRead(id: number) {
+  try {
+    const db = getDb();
+    const [updated] = await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, Number(id))).returning();
+    return updated || null;
+  } catch (err) {
+    console.warn("markSingleNotificationRead failed:", err);
+    return null;
+  }
+}
+
 // Stats
 export async function getDashboardStats() {
   const employeesList = await listEmployees();

@@ -16,16 +16,24 @@ import {
   createEmployee,
   updateEmployee,
   deleteEmployee,
+  listFormerEmployees,
+  restoreEmployee,
+  permanentlyDeleteEmployee,
   listOffices,
   getOfficeById,
   getOfficeByQrSecret,
   createOffice,
+  updateOffice,
+  deleteOffice,
   rotateEmployeeQr,
   rotateOfficeQr,
   rotateAdminQr,
   listAttendance,
   recordAttendance,
   completeAttendance,
+  getAttendanceById,
+  updateAttendance,
+  deleteAttendance,
   listAdvances,
   createAdvance,
   updateAdvanceStatus,
@@ -37,9 +45,17 @@ import {
   updateVacationRequestStatus,
   listViolations,
   createViolation,
+  getViolationById,
+  updateViolation,
+  deleteViolation,
   listSalaries,
+  getSalaryById,
+  createSalary,
+  updateSalaryStatus,
+  getEmployeeSalaryBalance,
   listNotifications,
   markNotificationsRead,
+  markSingleNotificationRead,
   getSettings,
   updateSettings,
   getDashboardStats
@@ -257,6 +273,17 @@ apiRouter.post('/employees', async (req, res) => {
   res.status(201).json(newEmp);
 });
 
+// Former employees
+apiRouter.get('/employees/former', async (req, res) => {
+  const list = await listFormerEmployees();
+  res.json(list);
+});
+
+// Seed defaults — no-op, DB already has real data
+apiRouter.post('/employees/seed-defaults', async (req, res) => {
+  res.json({ success: true, message: 'البيانات محفوظة في قاعدة البيانات' });
+});
+
 apiRouter.get('/employees/attendance-summary', async (req, res) => {
   const employeesList = await listEmployees();
   const attendanceList = await listAttendance();
@@ -288,8 +315,35 @@ apiRouter.patch('/employees/:id', async (req, res) => {
 });
 
 apiRouter.delete('/employees/:id', async (req, res) => {
-  await deleteEmployee(Number(req.params.id));
+  const reason = req.body?.reason || 'Deleted by admin';
+  await deleteEmployee(Number(req.params.id), reason);
   res.json({ success: true, message: 'تم حذف الموظف' });
+});
+
+apiRouter.post('/employees/:id/restore', async (req, res) => {
+  const emp = await restoreEmployee(Number(req.params.id));
+  if (!emp) return res.status(404).json({ message: 'الموظف غير موجود' });
+  return res.json(emp);
+});
+
+apiRouter.post('/employees/:id/permanent', async (req, res) => {
+  await permanentlyDeleteEmployee(Number(req.params.id));
+  res.json({ success: true, message: 'تم الحذف النهائي للموظف' });
+});
+
+apiRouter.get('/employees/:id/salary-balance', async (req, res) => {
+  const balance = await getEmployeeSalaryBalance(Number(req.params.id));
+  res.json(balance);
+});
+
+apiRouter.get('/employees/:id/transactions', async (req, res) => {
+  const empId = Number(req.params.id);
+  const [advList, salList, violList] = await Promise.all([
+    listAdvances(empId),
+    listSalaries(empId),
+    listViolations(empId)
+  ]);
+  res.json({ advances: advList, salaries: salList, violations: violList });
 });
 
 apiRouter.get('/employees/:id/qr-code', async (req, res) => {
@@ -333,6 +387,24 @@ apiRouter.get('/offices', async (req, res) => {
 apiRouter.post('/offices', async (req, res) => {
   const office = await createOffice(req.body);
   res.status(201).json(office);
+});
+
+apiRouter.get('/offices/:id', async (req, res) => {
+  if (req.params.id === 'qrcode') return; // handled below
+  const office = await getOfficeById(Number(req.params.id));
+  if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
+  return res.json(office);
+});
+
+apiRouter.patch('/offices/:id', async (req, res) => {
+  const office = await updateOffice(Number(req.params.id), req.body);
+  if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
+  return res.json(office);
+});
+
+apiRouter.delete('/offices/:id', async (req, res) => {
+  await deleteOffice(Number(req.params.id));
+  res.json({ success: true });
 });
 
 apiRouter.get('/offices/:id/qrcode', async (req, res) => {
@@ -432,6 +504,23 @@ apiRouter.post('/attendance', async (req, res) => {
   res.status(201).json(record);
 });
 
+apiRouter.get('/attendance/:id', async (req, res) => {
+  const record = await getAttendanceById(Number(req.params.id));
+  if (!record) return res.status(404).json({ message: 'سجل الحضور غير موجود' });
+  return res.json(record);
+});
+
+apiRouter.patch('/attendance/:id', async (req, res) => {
+  const record = await updateAttendance(Number(req.params.id), req.body);
+  if (!record) return res.status(404).json({ message: 'سجل الحضور غير موجود' });
+  return res.json(record);
+});
+
+apiRouter.delete('/attendance/:id', async (req, res) => {
+  await deleteAttendance(Number(req.params.id));
+  res.json({ success: true });
+});
+
 // Advances Endpoints
 apiRouter.get('/advances', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -514,12 +603,52 @@ apiRouter.post('/violations', async (req, res) => {
   res.status(201).json(record);
 });
 
+apiRouter.get('/violations/:id', async (req, res) => {
+  const v = await getViolationById(Number(req.params.id));
+  if (!v) return res.status(404).json({ message: 'المخالفة غير موجودة' });
+  return res.json(v);
+});
+
+apiRouter.patch('/violations/:id', async (req, res) => {
+  const v = await updateViolation(Number(req.params.id), req.body);
+  if (!v) return res.status(404).json({ message: 'المخالفة غير موجودة' });
+  return res.json(v);
+});
+
+apiRouter.delete('/violations/:id', async (req, res) => {
+  await deleteViolation(Number(req.params.id));
+  res.json({ success: true });
+});
+
 // Salaries Endpoints
 apiRouter.get('/salaries', async (req, res) => {
   const ctx = await getAuthContext(req);
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const list = await listSalaries(empId);
   res.json(list);
+});
+
+apiRouter.post('/salaries/generate', async (req, res) => {
+  const record = await createSalary(req.body);
+  res.status(201).json(record);
+});
+
+apiRouter.get('/salaries/:id', async (req, res) => {
+  const s = await getSalaryById(Number(req.params.id));
+  if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
+  return res.json(s);
+});
+
+apiRouter.post('/salaries/:id/pay', async (req, res) => {
+  const s = await updateSalaryStatus(Number(req.params.id), 'paid');
+  if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
+  return res.json({ ...s, ok: true });
+});
+
+apiRouter.post('/salaries/:id/postpone', async (req, res) => {
+  const s = await updateSalaryStatus(Number(req.params.id), 'postponed', { postponedUntil: req.body?.postponedUntil });
+  if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
+  return res.json({ ...s, ok: true });
 });
 
 // Notifications
@@ -534,6 +663,16 @@ apiRouter.get('/notifications', async (req, res) => {
 apiRouter.post('/notifications/read-all', async (req, res) => {
   await markNotificationsRead();
   res.json({ success: true });
+});
+
+apiRouter.post('/notifications/:id/read', async (req, res) => {
+  const n = await markSingleNotificationRead(Number(req.params.id));
+  res.json({ success: true, notification: n });
+});
+
+apiRouter.patch('/notifications/:id/read', async (req, res) => {
+  const n = await markSingleNotificationRead(Number(req.params.id));
+  res.json({ success: true, notification: n });
 });
 
 // Settings
@@ -583,6 +722,97 @@ apiRouter.get('/stats/salary-chart', async (req, res) => {
 });
 
 app.use('/api', apiRouter);
+
+// Employee portal compatibility routes — all /employee/* paths used by the WebView
+app.get('/employee/me', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(ctx.employee);
+});
+
+app.post('/employee/auth/logout', (req, res) => {
+  res.clearCookie('employee_token');
+  res.json({ success: true });
+});
+
+app.get('/employee/notifications', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const list = await listNotifications('employee', ctx.employee.id);
+  res.json(list);
+});
+
+app.post('/employee/notifications/read-all', async (req, res) => {
+  await markNotificationsRead();
+  res.json({ success: true });
+});
+
+app.post('/employee/notifications/:id/read', async (req, res) => {
+  const n = await markSingleNotificationRead(Number(req.params.id));
+  res.json({ success: true, notification: n });
+});
+
+app.get('/employee/salaries', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const list = await listSalaries(ctx.employee.id);
+  res.json(list);
+});
+
+app.get('/employee/salaries/:month/payslip', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const list = await listSalaries(ctx.employee.id);
+  const payslip = (list as any[]).find((s: any) => s.month === req.params.month);
+  if (!payslip) return res.status(404).json({ message: 'لم يتم العثور على كشف الراتب' });
+  return res.json(payslip);
+});
+
+app.get('/employee/salary-balance', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const balance = await getEmployeeSalaryBalance(ctx.employee.id);
+  res.json(balance);
+});
+
+app.get('/employee/requests', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const [advances, leaves, vacations] = await Promise.all([
+    listAdvances(ctx.employee.id),
+    listLeaveRequests(ctx.employee.id),
+    listVacationRequests(ctx.employee.id)
+  ]);
+  res.json({ advances, leaveRequests: leaves, vacationRequests: vacations });
+});
+
+app.post('/employee/requests/advance', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const record = await createAdvance({ ...req.body, employeeId: ctx.employee.id });
+  res.status(201).json(record);
+});
+
+app.post('/employee/requests/leave', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const record = await createLeaveRequest({ ...req.body, employeeId: ctx.employee.id });
+  res.status(201).json(record);
+});
+
+app.post('/employee/requests/vacation', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const record = await createVacationRequest({ ...req.body, employeeId: ctx.employee.id });
+  res.status(201).json(record);
+});
+
+app.get('/employee/violations', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const list = await listViolations(ctx.employee.id);
+  res.json(list);
+});
 
 // Compatibility routes used by the imported employee WebView. They retain the
 // original paths while delegating identity and QR validation to the same DB

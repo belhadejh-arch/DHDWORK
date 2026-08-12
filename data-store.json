@@ -1,0 +1,21 @@
+{
+  "admins": [],
+  "offices": [],
+  "employees": [],
+  "attendance": [],
+  "advances": [],
+  "bonuses": [],
+  "violations": [],
+  "salaries": [],
+  "leaveRequests": [],
+  "vacationRequests": [],
+  "notifications": [],
+  "settings": {
+    "id": 1,
+    "companyName": "DHD Livraison",
+    "currency": "DZD",
+    "language": "ar",
+    "workStartTime": "08:00",
+    "workEndTime": "17:00"
+  }
+}
