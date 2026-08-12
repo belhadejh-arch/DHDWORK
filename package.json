@@ -1,24 +1,19 @@
 {
-  "name": "dhd-livraison-workspace",
-  "private": true,
-  "type": "module",
-  "workspaces": [
-    "artifacts/api-server",
-    "artifacts/dhd-livraison",
-    "lib/*"
-  ],
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
   "scripts": {
-    "build:api": "npm run build --workspace=@workspace/api-server",
-    "start:api": "npm run start --workspace=@workspace/api-server",
-    "build": "npm run build --workspace=@workspace/api-server && node -e \"const fs = require('fs'); fs.mkdirSync('public', { recursive: true }); if (fs.existsSync('artifacts/dhd-livraison/dist/public')) { fs.cpSync('artifacts/dhd-livraison/dist/public', 'public', { recursive: true }); }\"",
-    "lint": "tsc --noEmit",
-    "start": "tsx server.ts",
-    "dev": "tsx server.ts"
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+  },
+  "private": true,
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0",
-    "esbuild-plugin-pino": "^2.3.3",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3"
   }
 }

@@ -1,0 +1,24 @@
+{
+  "name": "dhd-livraison-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "artifacts/api-server",
+    "artifacts/dhd-livraison",
+    "lib/*"
+  ],
+  "scripts": {
+    "build:api": "npm run build --workspace=@workspace/api-server",
+    "start:api": "npm run start --workspace=@workspace/api-server",
+    "build": "npm run build --workspace=@workspace/api-server && node -e \"const fs = require('fs'); fs.mkdirSync('public', { recursive: true }); if (fs.existsSync('artifacts/dhd-livraison/dist/public')) { fs.cpSync('artifacts/dhd-livraison/dist/public', 'public', { recursive: true }); }\"",
+    "lint": "tsc --noEmit",
+    "start": "tsx server.ts",
+    "dev": "tsx server.ts"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "esbuild-plugin-pino": "^2.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
