@@ -1,0 +1,43 @@
+2026-08-12T12:44:22.516372185Z ==> Cloning from https://github.com/belhadejh-arch/DHDWORK
+2026-08-12T12:44:23.221258903Z ==> Checking out commit 20e4058a0f7fac556712aace6a8ef0176e746bf1 in branch main
+2026-08-12T12:44:24.698617213Z ==> Using Node.js version 24.14.1 (default)
+2026-08-12T12:44:24.698628099Z ==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+2026-08-12T12:44:24.726553139Z ==> Running build command 'pnpm install --frozen-lockfile --prod=false && pnpm run build'...
+2026-08-12T12:44:29.440840529Z 
+2026-08-12T12:44:29.440857272Z > workspace@0.0.0 build /opt/render/project/src
+2026-08-12T12:44:29.440859815Z > pnpm run typecheck && pnpm -r --if-present run build
+2026-08-12T12:44:29.440860696Z 
+2026-08-12T12:44:29.6736578Z 
+2026-08-12T12:44:29.673673883Z > workspace@0.0.0 typecheck /opt/render/project/src
+2026-08-12T12:44:29.673675441Z > pnpm run typecheck:libs && pnpm -r --filter "./artifacts/**" --filter "./scripts" --if-present run typecheck
+2026-08-12T12:44:29.673676854Z 
+2026-08-12T12:44:29.902872567Z 
+2026-08-12T12:44:29.902887124Z > workspace@0.0.0 typecheck:libs /opt/render/project/src
+2026-08-12T12:44:29.90288833Z > tsc --build
+2026-08-12T12:44:29.902889303Z 
+2026-08-12T12:44:40.741511748Z ==> Uploading build...
+2026-08-12T12:44:45.540482749Z ==> Uploaded in 3.3s. Compression took 1.5s
+2026-08-12T12:44:45.542536056Z ==> Build successful 🎉
+2026-08-12T12:44:46.375460732Z ==> Deploying...
+2026-08-12T12:44:46.436687625Z ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+2026-08-12T12:45:02.771546467Z ==> Running 'pnpm install --frozen-lockfile --prod=false && pnpm run build'
+2026-08-12T12:45:26.471955366Z 
+2026-08-12T12:45:26.471982366Z > workspace@0.0.0 build /opt/render/project/src
+2026-08-12T12:45:26.471991427Z > pnpm run typecheck && pnpm -r --if-present run build
+2026-08-12T12:45:26.471997027Z 
+2026-08-12T12:45:29.576398944Z 
+2026-08-12T12:45:29.576418154Z > workspace@0.0.0 typecheck /opt/render/project/src
+2026-08-12T12:45:29.576424674Z > pnpm run typecheck:libs && pnpm -r --filter "./artifacts/**" --filter "./scripts" --if-present run typecheck
+2026-08-12T12:45:29.576430824Z 
+2026-08-12T12:45:32.873659013Z 
+2026-08-12T12:45:32.873691484Z > workspace@0.0.0 typecheck:libs /opt/render/project/src
+2026-08-12T12:45:32.873698154Z > tsc --build
+2026-08-12T12:45:32.873703524Z 
+2026-08-12T12:45:50.766232493Z ==> No open ports detected, continuing to scan...
+2026-08-12T12:45:50.875474535Z ==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
+2026-08-12T12:46:15.213378894Z ==> Exited with status 137
+2026-08-12T12:46:15.217272421Z ==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+2026-08-12T12:46:19.471586061Z ==> Running 'pnpm install --frozen-lockfile --prod=false && pnpm run build'
+
+
+حل المشكل فورا
