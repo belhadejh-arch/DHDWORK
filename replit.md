@@ -1,6 +1,6 @@
-# [Project name]
+# DHD Livraison
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+نظام إدارة الموظفين والمكاتب والحضور لشركة DHD للتوصيل، مع حسابات الأدمن والموظفين وتسجيل الدخول والتحقق عبر QR.
 
 ## Run & Operate
 
@@ -22,23 +22,34 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/dhd-livraison/` — الواجهة المستوردة الأصلية المبنية بـVite، وتشمل لوحة الأدمن وحساب الموظف وشاشة QR.
+- `artifacts/api-server/src/app.ts` — مسارات المصادقة والموظفين والمكاتب والحضور والتحقق من QR.
+- `artifacts/api-server/src/dbStore.ts` — الوصول إلى PostgreSQL وتنسيق السجلات؛ PostgreSQL هو مصدر الحقيقة.
+- `lib/db/src/schema/index.ts` — مخطط جداول PostgreSQL الحالي.
+- `artifacts/dhd-livraison/public/assets/` — ملفات الواجهة الأصلية المجمعة، بما فيها ماسح الكاميرا ومكونات QR.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- لا توجد بيانات موظفين تجريبية أو مزروعة؛ قوائم الموظفين والمكاتب والأدمن تقرأ من PostgreSQL مباشرة مع الحفاظ على IDs والعلاقات.
+- QR يُقبل للتحقق أو تسجيل الدخول فقط إذا طابق `qr_code_data` المحفوظ للسجل الصحيح؛ الرقم التسلسلي ليس بديلًا عن QR.
+- مسارات QR القديمة والجديدة (`qrcode` و`qr-code`) مدعومة للحفاظ على توافق الواجهة المستوردة.
+- خدمة الويب في `/` وخدمة API في `/api`، وتتم إدارة الخدمتين عبر workflows المملوكة للـartifacts.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+لوحة لإدارة الموظفين والمكاتب والحضور والطلبات والرواتب والإشعارات، مع حساب موظف منفصل وتسجيل دخول بالتسلسل أو QR، وإنشاء/عرض/تحميل/طباعة QR للكيانات المدعومة.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- تنفيذ الإصلاحات داخل النظام الحالي فقط؛ لا حذف أو استبدال بيانات PostgreSQL ولا إنشاء موظفين بدلاء.
+- الحفاظ على IDs وعلاقات الموظفين بالمكاتب.
+- منع QR غير المسجل وربطه بالحساب أو المكتب الصحيح.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- يجب توفير `DATABASE_URL` قبل تشغيل API.
+- بعد تعديل API أعد تشغيل `artifacts/api-server: API Server`، وبعد تعديل الواجهة أعد تشغيل `artifacts/dhd-livraison: web`.
+- اختبر من خلال proxy على `localhost:80` (`/api/...`) وليس المنافذ المحلية مباشرة.
 
 ## Pointers
 

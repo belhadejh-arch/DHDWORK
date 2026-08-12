@@ -1,0 +1,1 @@
+- [DHD identity data](dhd-identity-data.md) — PostgreSQL is authoritative for employees, offices, admins, and strict QR identity matching.

@@ -19,6 +19,7 @@ import {
   createOffice,
   listAttendance,
   recordAttendance,
+  completeAttendance,
   listAdvances,
   createAdvance,
   updateAdvanceStatus,

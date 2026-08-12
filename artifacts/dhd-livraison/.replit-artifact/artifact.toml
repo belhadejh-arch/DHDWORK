@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "DHD Livraison"
+description = "نظام إدارة الموارد البشرية والموظفين والمكاتب لشركة DHD للتوصيل، مع إدارة الحضور وتسجيل الدخول عبر رموز QR."
+version = "1.0.0"
+id = "artifacts/dhd-livraison"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22444
+
+[services.development]
+run = "pnpm --filter @workspace/dhd-livraison run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/dhd-livraison", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/dhd-livraison/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22444"
+BASE_PATH = "/"
