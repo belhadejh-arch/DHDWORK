@@ -437,20 +437,24 @@ apiRouter.delete('/offices/:id', async (req, res) => {
 apiRouter.get('/offices/:id/qrcode', async (req, res) => {
   const office = await getOfficeById(Number(req.params.id));
   if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
+  const qr = office.qrCodeData || office.qrCodeSecret || null;
   return res.json({
     officeId: office.id,
-    qrCodeSecret: office.qrCodeSecret,
-    qrCodeData: office.qrCodeData
+    qrCodeSecret: qr,
+    qrCodeData: qr,
+    token: qr           // ← the offices list JS reads i.token
   });
 });
 
 apiRouter.post('/offices/:id/qrcode/regenerate', async (req, res) => {
   const office = await rotateOfficeQr(Number(req.params.id));
   if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
+  const qr = office.qrCodeData || office.qrCodeSecret || null;
   return res.json({
     officeId: office.id,
-    qrCodeSecret: office.qrCodeSecret,
-    qrCodeData: office.qrCodeData
+    qrCodeSecret: qr,
+    qrCodeData: qr,
+    token: qr           // ← the offices list JS reads i.token after regenerate
   });
 });
 
