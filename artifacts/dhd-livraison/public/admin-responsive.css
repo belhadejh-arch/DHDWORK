@@ -258,3 +258,249 @@ body,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Admin content rhythm
+   These rules cover the employee, former-employee, salary, request and
+   violation screens, which are shipped as separate lazy-loaded pages.
+   ───────────────────────────────────────────────────────────────────────── */
+
+#root > div.flex.h-\[100dvh\] main > div.flex-1 > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#root > div.flex.h-\[100dvh\] main .space-y-6,
+#root > div.flex.h-\[100dvh\] main .space-y-7 {
+  width: 100%;
+  min-width: 0;
+}
+
+#root > div.flex.h-\[100dvh\] main .rounded-md.border,
+#root > div.flex.h-\[100dvh\] main .rounded-lg.border,
+#root > div.flex.h-\[100dvh\] main .rounded-2xl.border,
+#root > div.flex.h-\[100dvh\] main .rounded-\[22px\],
+#root > div.flex.h-\[100dvh\] main .rounded-\[26px\] {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#root > div.flex.h-\[100dvh\] main .flex.items-start.justify-between,
+#root > div.flex.h-\[100dvh\] main .flex.items-center.justify-between,
+#root > div.flex.h-\[100dvh\] main .flex.justify-between {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+#root > div.flex.h-\[100dvh\] main .flex.justify-end {
+  flex-wrap: wrap;
+}
+
+#root > div.flex.h-\[100dvh\] main button,
+#root > div.flex.h-\[100dvh\] main a {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#root > div.flex.h-\[100dvh\] main input,
+#root > div.flex.h-\[100dvh\] main textarea,
+#root > div.flex.h-\[100dvh\] main select,
+#root > div.flex.h-\[100dvh\] main [role='combobox'] {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Existing bundle utilities use `truncate` for names. On content cards,
+   wrapping is more useful than an ellipsis; tables still retain their own
+   horizontal safety container below. */
+#root > div.flex.h-\[100dvh\] main .rounded-2xl .truncate,
+#root > div.flex.h-\[100dvh\] main .rounded-\[22px\] .truncate,
+#root > div.flex.h-\[100dvh\] main .rounded-\[26px\] .truncate {
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#root > div.flex.h-\[100dvh\] main table {
+  width: 100%;
+  table-layout: auto;
+}
+
+#root > div.flex.h-\[100dvh\] main table td,
+#root > div.flex.h-\[100dvh\] main table th {
+  max-width: 20rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+#root > div.flex.h-\[100dvh\] main table .truncate {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#root > div.flex.h-\[100dvh\] main table td:last-child > div,
+#root > div.flex.h-\[100dvh\] main table th:last-child > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#root > div.flex.h-\[100dvh\] main [role='tablist'],
+#root > div.flex.h-\[100dvh\] main [role='tablist'] > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#root > div.flex.h-\[100dvh\] main [role='tablist'] {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+@media (min-width: 768px) {
+  #root > div.flex.h-\[100dvh\] main > div.flex-1.overflow-y-auto {
+    padding-inline: clamp(1.25rem, 3vw, 2rem);
+  }
+
+  #root > div.flex.h-\[100dvh\] main .space-y-6,
+  #root > div.flex.h-\[100dvh\] main .space-y-7 {
+    max-width: 120rem;
+    margin-inline: auto;
+  }
+}
+
+@media (max-width: 767px) {
+  [role='dialog'] {
+    width: min(calc(100vw - 1.5rem), 42rem) !important;
+    max-width: calc(100vw - 1.5rem) !important;
+    max-height: calc(100dvh - 1.5rem);
+    overflow-y: auto;
+  }
+
+  [role='dialog'] form .grid,
+  [role='dialog'] .grid.grid-cols-2,
+  [role='dialog'] .grid.grid-cols-3,
+  [role='dialog'] .grid.grid-cols-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root > div.flex.h-\[100dvh\] main h1 {
+    font-size: clamp(1.45rem, 6vw, 2rem);
+    line-height: 1.3;
+  }
+
+  #root > div.flex.h-\[100dvh\] main h2 {
+    font-size: clamp(1.1rem, 5vw, 1.45rem);
+    line-height: 1.35;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .p-4.sm\:p-6 {
+    padding: 0.9rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .p-5,
+  #root > div.flex.h-\[100dvh\] main .p-6 {
+    padding: 1rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .gap-6 {
+    gap: 1rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .mb-6 {
+    margin-bottom: 1rem;
+  }
+
+  /* Search/filter rows and employee/salary/request action rows become a
+     single readable column before they can squeeze into each other. */
+  #root > div.flex.h-\[100dvh\] main .flex.flex-col.sm\:flex-row,
+  #root > div.flex.h-\[100dvh\] main .flex.sm\:flex-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex.flex-col.sm\:flex-row > *,
+  #root > div.flex.h-\[100dvh\] main .flex.sm\:flex-row > * {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex.flex-wrap {
+    row-gap: 0.55rem;
+  }
+
+  /* Dialog forms and employee/violation detail grids stack on a phone. */
+  #root > div.flex.h-\[100dvh\] main .grid.grid-cols-2,
+  #root > div.flex.h-\[100dvh\] main .grid.grid-cols-3,
+  #root > div.flex.h-\[100dvh\] main .grid.grid-cols-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root > div.flex.h-\[100dvh\] main .col-span-2 {
+    grid-column: auto;
+  }
+
+  #root > div.flex.h-\[100dvh\] main [role='tablist'] > *,
+  #root > div.flex.h-\[100dvh\] main [role='tab'] {
+    min-height: 42px;
+    flex: 1 1 auto;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table {
+    min-width: 40rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table td,
+  #root > div.flex.h-\[100dvh\] main table th {
+    padding: 0.65rem 0.75rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table td:last-child > div,
+  #root > div.flex.h-\[100dvh\] main table th:last-child > div {
+    justify-content: flex-start;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table button {
+    min-width: 42px;
+  }
+
+  /* Let names, offices, reasons and salary descriptions use their full
+     available card width instead of being hidden by utility truncation. */
+  #root > div.flex.h-\[100dvh\] main .max-w-\[200px\],
+  #root > div.flex.h-\[100dvh\] main .max-w-\[150px\],
+  #root > div.flex.h-\[100dvh\] main .max-w-md,
+  #root > div.flex.h-\[100dvh\] main .max-w-lg {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  #root > div.flex.h-\[100dvh\] main .grid.grid-cols-2,
+  #root > div.flex.h-\[100dvh\] main .grid.grid-cols-3,
+  #root > div.flex.h-\[100dvh\] main .grid.grid-cols-4 {
+    gap: 0.65rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .p-4.sm\:p-6,
+  #root > div.flex.h-\[100dvh\] main .p-5,
+  #root > div.flex.h-\[100dvh\] main .p-6 {
+    padding: 0.8rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main button,
+  #root > div.flex.h-\[100dvh\] main a[role='button'] {
+    min-height: 44px;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table {
+    min-width: 36rem;
+  }
+}
