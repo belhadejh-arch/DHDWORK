@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>تسجيل دخول الموظفين — DHD Livraison</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Changa:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Changa', sans-serif;
+      min-height: 100vh;
+      background: linear-gradient(145deg, #FF6B00 0%, #E84D00 40%, #b83900 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      animation: bgFade 0.6s ease;
+    }
+
+    @keyframes bgFade { from { opacity: 0 } to { opacity: 1 } }
+
+    .card {
+      background: #fff;
+      border-radius: 28px;
+      width: 100%;
+      max-width: 400px;
+      overflow: hidden;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+      animation: slideUp 0.5s cubic-bezier(.22,.68,0,1.2);
+    }
+
+    @keyframes slideUp { from { transform: translateY(40px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+
+    .card-header {
+      background: linear-gradient(135deg, #FF6B00, #C25400);
+      padding: 32px 24px 40px;
+      text-align: center;
+      position: relative;
+    }
+
+    .card-header::after {
+      content: '';
+      position: absolute;
+      bottom: -20px; left: 0; right: 0;
+      height: 40px;
+      background: #fff;
+      border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+    }
+
+    .logo-box {
+      width: 80px; height: 80px;
+      background: rgba(255,255,255,0.95);
+      border-radius: 20px;
+      margin: 0 auto 12px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    }
+
+    .logo-box img { width: 60px; height: 60px; object-fit: contain; }
+
+    .card-header h1 {
+      color: #fff;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .card-header p {
+      color: rgba(255,255,255,0.85);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+
+    .card-body {
+      padding: 36px 24px 28px;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      background: #f5f5f5;
+      border-radius: 14px;
+      padding: 4px;
+      margin-bottom: 24px;
+      gap: 4px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      font-family: 'Changa', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #888;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+      background: #fff;
+      color: #FF6B00;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    /* Form */
+    .panel { display: none; }
+    .panel.active { display: block; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+
+    .field {
+      position: relative;
+      margin-bottom: 18px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #444;
+      margin-bottom: 6px;
+    }
+
+    .field-wrap {
+      display: flex;
+      align-items: center;
+      border: 2px solid #eee;
+      border-radius: 12px;
+      background: #fafafa;
+      transition: border-color 0.2s;
+      overflow: hidden;
+    }
+
+    .field-wrap:focus-within {
+      border-color: #FF6B00;
+      background: #fff;
+    }
+
+    .field-icon {
+      padding: 0 12px 0 8px;
+      color: #aaa;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+
+    .field-wrap input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 14px 4px 14px 0;
+      font-family: 'Changa', sans-serif;
+      font-size: 1rem;
+      color: #222;
+      outline: none;
+      direction: ltr;
+      text-align: right;
+    }
+
+    .eye-btn {
+      padding: 0 12px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #aaa;
+      font-size: 1.1rem;
+      transition: color 0.2s;
+    }
+
+    .eye-btn:hover { color: #FF6B00; }
+
+    .btn-primary {
+      width: 100%;
+      padding: 15px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #FF6B00, #C25400);
+      color: #fff;
+      font-family: 'Changa', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+      margin-top: 4px;
+    }
+
+    .btn-primary:hover { opacity: 0.92; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* QR Panel */
+    .qr-panel {
+      text-align: center;
+      padding: 8px 0;
+    }
+
+    .qr-icon {
+      width: 90px; height: 90px;
+      background: #fff7f0;
+      border-radius: 20px;
+      margin: 0 auto 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 3rem;
+      border: 2px dashed #FF6B00;
+    }
+
+    .qr-panel p {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      top: 20px; left: 50%;
+      transform: translateX(-50%) translateY(-80px);
+      background: #333;
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      font-family: 'Changa', sans-serif;
+      z-index: 9999;
+      transition: transform 0.3s cubic-bezier(.22,.68,0,1.2);
+      max-width: 320px;
+      text-align: center;
+      white-space: pre-line;
+    }
+
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.error { background: #c0392b; }
+    .toast.success { background: #27ae60; }
+
+    /* Camera overlay */
+    .camera-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .camera-overlay.active { display: flex; }
+
+    .camera-overlay video {
+      width: 100%;
+      max-width: 340px;
+      border-radius: 20px;
+      border: 3px solid #FF6B00;
+    }
+
+    .camera-overlay canvas { display: none; }
+
+    .camera-close {
+      margin-top: 20px;
+      padding: 12px 32px;
+      background: #fff;
+      border: none;
+      border-radius: 12px;
+      font-family: 'Changa', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: #333;
+    }
+
+    .scan-hint {
+      color: #fff;
+      font-size: 0.9rem;
+      margin-top: 12px;
+      opacity: 0.8;
+      font-family: 'Changa', sans-serif;
+    }
+
+    .spin {
+      display: inline-block;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg) } }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="card-header">
+    <div class="logo-box">
+      <img src="/assets/1000034141-removebg-preview_1785699198526-C-34cSbP.png"
+           onerror="this.style.display='none';this.parentElement.innerHTML='<span style=\'font-size:2.2rem\'>📦</span>'" />
+    </div>
+    <h1>DHD Livraison</h1>
+    <p>بوابة الموظفين</p>
+  </div>
+
+  <div class="card-body">
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" role="tab" aria-selected="true" onclick="switchTab('serial')">الرقم التسلسلي</button>
+      <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab('qr')">رمز QR</button>
+    </div>
+
+    <!-- Serial Panel -->
+    <div id="panel-serial" class="panel active">
+      <form id="serial-form" onsubmit="loginSerial(event)">
+        <div class="field">
+          <label for="serial-input">الرقم التسلسلي</label>
+          <div class="field-wrap">
+            <span class="field-icon">#</span>
+            <input id="serial-input" type="password" placeholder="أدخل رقمك التسلسلي"
+                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required />
+            <button type="button" class="eye-btn" onclick="toggleEye()" id="eye-btn" title="إظهار / إخفاء">👁</button>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" id="serial-btn">تسجيل الدخول</button>
+      </form>
+    </div>
+
+    <!-- QR Panel -->
+    <div id="panel-qr" class="panel">
+      <div class="qr-panel">
+        <div class="qr-icon">📷</div>
+        <p>افتح الكاميرا وضع رمز QR الخاص بك أمام العدسة ليتم تسجيل دخولك تلقائياً.</p>
+        <button class="btn-primary" onclick="openCamera()">فتح الكاميرا</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Camera Overlay -->
+<div class="camera-overlay" id="camera-overlay">
+  <video id="qr-video" playsinline autoplay muted></video>
+  <canvas id="qr-canvas"></canvas>
+  <div class="scan-hint">وجّه الكاميرا نحو رمز QR</div>
+  <button class="camera-close" onclick="closeCamera()">إغلاق</button>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ---- Config ----
+  const API = ''; // same origin
+  let eyeVisible = false;
+  let cameraStream = null;
+  let scanInterval = null;
+  let scanning = false;
+
+  // ---- Tabs ----
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach((b, i) => {
+      const t = i === 0 ? 'serial' : 'qr';
+      b.classList.toggle('active', t === tab);
+      b.setAttribute('aria-selected', String(t === tab));
+    });
+    document.getElementById('panel-serial').classList.toggle('active', tab === 'serial');
+    document.getElementById('panel-qr').classList.toggle('active', tab === 'qr');
+  }
+
+  // ---- Eye toggle ----
+  function toggleEye() {
+    eyeVisible = !eyeVisible;
+    const inp = document.getElementById('serial-input');
+    inp.type = eyeVisible ? 'text' : 'password';
+    document.getElementById('eye-btn').textContent = eyeVisible ? '🙈' : '👁';
+  }
+
+  // ---- Toast ----
+  function showToast(msg, type = '') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (type ? ' ' + type : '');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3500);
+  }
+
+  // ---- Serial Login ----
+  async function loginSerial(e) {
+    e.preventDefault();
+    const code = document.getElementById('serial-input').value.trim();
+    if (!code) return;
+
+    const btn = document.getElementById('serial-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin">⏳</span> جاري التحقق...';
+
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(API + '/api/auth/login/serial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serial: code }),
+        credentials: 'include',
+        signal: ctrl.signal
+      });
+      clearTimeout(tid);
+      const data = await res.json();
+
+      if (data.success && data.userType === 'employee') {
+        if (data.token) localStorage.setItem('employee_token', data.token);
+        showToast('مرحباً ' + (data.employee?.firstName || '') + ' 👋', 'success');
+        setTimeout(() => { window.location.href = '/portal'; }, 900);
+      } else {
+        showToast(data.message || 'الرقم التسلسلي غير صحيح', 'error');
+        btn.disabled = false;
+        btn.textContent = 'تسجيل الدخول';
+      }
+    } catch (err) {
+      const msg = err.name === 'AbortError' ? 'انتهت مهلة الاتصال، تحقق من الإنترنت' : 'تعذر الاتصال بالخادم';
+      showToast(msg, 'error');
+      btn.disabled = false;
+      btn.textContent = 'تسجيل الدخول';
+    }
+  }
+
+  // ---- QR Camera ----
+  async function openCamera() {
+    const overlay = document.getElementById('camera-overlay');
+    const video = document.getElementById('qr-video');
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      video.srcObject = cameraStream;
+      overlay.classList.add('active');
+      startScan(video);
+    } catch {
+      showToast('تعذر الوصول إلى الكاميرا. تحقق من الإذن في المتصفح.', 'error');
+    }
+  }
+
+  function closeCamera() {
+    clearInterval(scanInterval);
+    scanInterval = null;
+    if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+    document.getElementById('camera-overlay').classList.remove('active');
+    scanning = false;
+  }
+
+  function startScan(video) {
+    const canvas = document.getElementById('qr-canvas');
+    const ctx = canvas.getContext('2d');
+    scanInterval = setInterval(async () => {
+      if (scanning || video.readyState < 2) return;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      let qrValue = null;
+
+      // Try BarcodeDetector (Chrome/Edge)
+      if ('BarcodeDetector' in window) {
+        try {
+          const bd = new BarcodeDetector({ formats: ['qr_code'] });
+          const codes = await bd.detect(canvas);
+          if (codes.length > 0) qrValue = codes[0].rawValue;
+        } catch {}
+      }
+
+      if (qrValue && !scanning) {
+        scanning = true;
+        closeCamera();
+        await loginQr(qrValue);
+      }
+    }, 400);
+  }
+
+  async function loginQr(qrValue) {
+    showToast('⏳ جاري التحقق من رمز QR...', '');
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(API + '/api/auth/login/qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qrCodeData: qrValue }),
+        credentials: 'include',
+        signal: ctrl.signal
+      });
+      clearTimeout(tid);
+      const data = await res.json();
+
+      if (data.success && data.userType === 'employee') {
+        if (data.token) localStorage.setItem('employee_token', data.token);
+        showToast('مرحباً ' + (data.employee?.firstName || '') + ' 👋', 'success');
+        setTimeout(() => { window.location.href = '/portal'; }, 900);
+      } else {
+        showToast(data.message || 'رمز QR غير صالح', 'error');
+        scanning = false;
+      }
+    } catch (err) {
+      const msg = err.name === 'AbortError' ? 'انتهت مهلة الاتصال' : 'تعذر الاتصال بالخادم';
+      showToast(msg, 'error');
+      scanning = false;
+    }
+  }
+</script>
+</body>
+</html>
