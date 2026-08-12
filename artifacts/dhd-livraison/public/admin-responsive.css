@@ -63,11 +63,15 @@ body,
   width: min(88vw, 22rem);
   max-width: 100%;
   min-width: 0;
+  will-change: transform;
+  overscroll-behavior: contain;
 }
 
 .fixed.top-0.end-0.z-50 > div.w-\[272px\] {
   width: 100%;
   max-width: 100%;
+  height: 100%;
+  touch-action: pan-y;
 }
 
 .fixed.top-0.end-0.z-50 nav a {
@@ -79,22 +83,57 @@ body,
   min-height: 48px;
 }
 
-/* `end-0` places the drawer on the inline end; the transform must follow
-   that logical direction rather than assuming an LTR screen. */
+/* The product convention is right-side Arabic and left-side French/English.
+   The bundle uses a logical `end-0` class, so override the physical edge
+   here to keep the drawer aligned with the selected language. */
 [dir='rtl'] .fixed.top-0.end-0.z-50.translate-x-full {
-  transform: translateX(-100%);
+  right: 0;
+  left: auto;
+  inset-inline-start: auto;
+  inset-inline-end: auto;
+  translate: none;
+  transform: translateX(100%);
 }
 
 [dir='rtl'] .fixed.top-0.end-0.z-50.translate-x-0 {
+  right: 0;
+  left: auto;
+  inset-inline-start: auto;
+  inset-inline-end: auto;
+  translate: none;
   transform: translateX(0);
 }
 
 [dir='ltr'] .fixed.top-0.end-0.z-50.translate-x-full {
-  transform: translateX(100%);
+  left: 0;
+  right: auto;
+  inset-inline-start: auto;
+  inset-inline-end: auto;
+  translate: none;
+  transform: translateX(-100%);
 }
 
 [dir='ltr'] .fixed.top-0.end-0.z-50.translate-x-0 {
+  left: 0;
+  right: auto;
+  inset-inline-start: auto;
+  inset-inline-end: auto;
+  translate: none;
   transform: translateX(0);
+}
+
+.fixed.top-0.end-0.z-50.translate-x-full {
+  pointer-events: none;
+}
+
+.fixed.top-0.end-0.z-50.translate-x-0 {
+  pointer-events: auto;
+}
+
+/* During a pointer gesture the touch helper owns the transform. */
+.fixed.top-0.end-0.z-50.is-dragging {
+  transition: none !important;
+  translate: none !important;
 }
 
 /* Prevent long names, email addresses and translated labels from widening
