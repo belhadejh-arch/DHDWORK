@@ -3,8 +3,9 @@
   "buildCommand": "pnpm --filter @workspace/dhd-livraison run build",
   "outputDirectory": "artifacts/dhd-livraison/dist/public",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://dhdworknew-ver.onrender.com/api/$1" },
-    { "source": "/employee/(.*)", "destination": "https://dhdworknew-ver.onrender.com/employee/$1" },
-    { "source": "/healthz", "destination": "https://dhdworknew-ver.onrender.com/healthz" }
+    { "source": "/api/:path*", "destination": "https://dhdworknew-ver.onrender.com/api/:path*" },
+    { "source": "/employee/:path*", "destination": "https://dhdworknew-ver.onrender.com/employee/:path*" },
+    { "source": "/healthz", "destination": "https://dhdworknew-ver.onrender.com/healthz" },
+    { "source": "/((?!.*\\.).*)", "destination": "/index.html" }
   ]
 }
