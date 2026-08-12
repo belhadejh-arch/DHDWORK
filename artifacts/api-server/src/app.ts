@@ -682,6 +682,22 @@ apiRouter.get('/salaries', async (req, res) => {
   res.json(list);
 });
 
+function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
+  if (!data) return null;
+  return {
+    salary: data.salary,
+    employee: data.employee,
+    companyName: 'DHD Livraison',
+    attendanceRecords: data.attendance,
+    advances: data.advances,
+    violations: data.violations,
+    leaveRequests: [],
+    vacationRequests: [],
+    bonuses: [],
+    summary: data.summary,
+  };
+}
+
 apiRouter.post('/salaries/generate', async (req, res) => {
   const record = await createSalary(req.body);
   res.status(201).json(record);
@@ -691,6 +707,16 @@ apiRouter.get('/salaries/:id', async (req, res) => {
   const s = await getSalaryById(Number(req.params.id));
   if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
   return res.json(s);
+});
+
+// JSON payslip data used by the admin and employee print views.
+// Keep this endpoint separate from the printable HTML endpoint so the
+// browser-side renderer can produce the same professional document in both
+// account types.
+apiRouter.get('/salaries/:id/payslip', async (req, res) => {
+  const data = toPayslipPayload(await getSalaryPdfData(Number(req.params.id)));
+  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+  return res.json(data);
 });
 
 apiRouter.post('/salaries/:id/pay', async (req, res) => {
@@ -716,12 +742,46 @@ apiRouter.get('/salaries/:id/pdf', async (req, res) => {
 });
 
 // Notifications
+function notificationTargetPath(notification: { type?: string | null; referenceId?: number | null }) {
+  switch (notification.type) {
+    case 'advance_request':
+    case 'advance_approved':
+    case 'advance_rejected':
+    case 'leave_request':
+    case 'leave_approved':
+    case 'leave_rejected':
+    case 'vacation_request':
+    case 'vacation_approved':
+    case 'vacation_rejected':
+      return '/portal/requests';
+    case 'violation_added':
+    case 'violation_updated':
+      return '/portal/violations';
+    case 'salary_due':
+    case 'salary_paid':
+    case 'salary_postponed':
+      return '/portal/account';
+    case 'attendance_alert':
+    case 'late_alert':
+      return '/portal';
+    default:
+      return '/portal';
+  }
+}
+
+function withNotificationTarget(notification: any) {
+  return {
+    ...notification,
+    targetPath: notificationTargetPath(notification),
+  };
+}
+
 apiRouter.get('/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
   const recipientType = ctx?.userType === 'employee' ? 'employee' : 'admin';
   const recipientId = ctx?.userType === 'employee' ? ctx.employee.id : undefined;
   const list = await listNotifications(recipientType, recipientId);
-  res.json(list);
+  res.json(list.map(withNotificationTarget));
 });
 
 apiRouter.post('/notifications/read-all', async (req, res) => {
@@ -841,7 +901,7 @@ apiRouter.get('/employee/requests', async (req, res) => {
 apiRouter.get('/employee/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  return res.json(await listNotifications('employee', ctx.employee.id));
+  return res.json((await listNotifications('employee', ctx.employee.id)).map(withNotificationTarget));
 });
 
 apiRouter.post('/employee/notifications/read-all', async (req, res) => {
@@ -869,7 +929,7 @@ app.post('/employee/auth/logout', (req, res) => {
 app.get('/employee/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  const list = await listNotifications('employee', ctx.employee.id);
+  const list = (await listNotifications('employee', ctx.employee.id)).map(withNotificationTarget);
   return res.json(list);
 });
 
@@ -894,9 +954,19 @@ app.get('/employee/salaries/:month/payslip', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const list = await listSalaries(ctx.employee.id);
-  const payslip = (list as any[]).find((s: any) => s.month === req.params.month);
+  const requestedValue = String(req.params.month);
+  // The employee bundle historically sent the salary id, while older
+  // versions sent the month. Accept both forms and always return the full
+  // payslip payload expected by the print renderer.
+  const payslip = (list as any[]).find((s: any) =>
+    String(s.id) === requestedValue ||
+    String(s.month) === requestedValue
+  );
   if (!payslip) return res.status(404).json({ message: 'لم يتم العثور على كشف الراتب' });
-  return res.json(payslip);
+
+  const data = toPayslipPayload(await getSalaryPdfData(Number(payslip.id)));
+  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+  return res.json(data);
 });
 
 // Employee PDF payslip by salary ID
