@@ -283,6 +283,7 @@ body,
 #root > div.flex.h-\[100dvh\] main .rounded-\[26px\] {
   min-width: 0;
   max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 #root > div.flex.h-\[100dvh\] main .flex.items-start.justify-between,
@@ -314,9 +315,7 @@ body,
 /* Existing bundle utilities use `truncate` for names. On content cards,
    wrapping is more useful than an ellipsis; tables still retain their own
    horizontal safety container below. */
-#root > div.flex.h-\[100dvh\] main .rounded-2xl .truncate,
-#root > div.flex.h-\[100dvh\] main .rounded-\[22px\] .truncate,
-#root > div.flex.h-\[100dvh\] main .rounded-\[26px\] .truncate {
+#root > div.flex.h-\[100dvh\] main .truncate {
   max-width: 100%;
   overflow: visible;
   text-overflow: clip;
@@ -365,6 +364,71 @@ body,
   gap: 0.35rem;
 }
 
+/* Keep the same visual language on every form control and action row,
+   including lazy-loaded employee, salary, request and violation pages. */
+#root > div.flex.h-\[100dvh\] main input,
+#root > div.flex.h-\[100dvh\] main select,
+#root > div.flex.h-\[100dvh\] main textarea,
+#root > div.flex.h-\[100dvh\] main [role='combobox'] {
+  border-radius: 0.8rem;
+  line-height: 1.45;
+}
+
+#root > div.flex.h-\[100dvh\] main button > svg,
+#root > div.flex.h-\[100dvh\] main a > svg {
+  flex: 0 0 auto;
+}
+
+#root > div.flex.h-\[100dvh\] main form label {
+  max-width: 100%;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+#root > div.flex.h-\[100dvh\] main [role='tab'],
+#root > div.flex.h-\[100dvh\] main [data-state='active'] {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* Dialog and popover content is rendered in a portal, outside the main
+   content tree, so it needs its own shared mobile boundary. */
+[data-radix-dialog-content],
+[data-radix-popover-content],
+[role='dialog'] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+[data-radix-dialog-content] button,
+[data-radix-dialog-content] a,
+[data-radix-popover-content] button,
+[data-radix-popover-content] a,
+[role='dialog'] button,
+[role='dialog'] a {
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* Logical text alignment: the imported pages contain a few physical
+   `text-right` utilities. Keep Arabic right-aligned and French/English
+   left-aligned without changing numeric/action alignment where explicit. */
+#root > div.flex.h-\[100dvh\][dir='ltr'] main .text-right {
+  text-align: left;
+}
+
+#root > div.flex.h-\[100dvh\][dir='rtl'] main .text-left {
+  text-align: right;
+}
+
+#root > div.flex.h-\[100dvh\] main .text-start {
+  text-align: start;
+}
+
+#root > div.flex.h-\[100dvh\] main .text-end {
+  text-align: end;
+}
+
 @media (min-width: 768px) {
   #root > div.flex.h-\[100dvh\] main > div.flex-1.overflow-y-auto {
     padding-inline: clamp(1.25rem, 3vw, 2rem);
@@ -402,6 +466,11 @@ body,
     line-height: 1.35;
   }
 
+  #root > div.flex.h-\[100dvh\] main h3 {
+    font-size: clamp(1rem, 4.2vw, 1.2rem);
+    line-height: 1.4;
+  }
+
   #root > div.flex.h-\[100dvh\] main .p-4.sm\:p-6 {
     padding: 0.9rem;
   }
@@ -437,6 +506,16 @@ body,
     row-gap: 0.55rem;
   }
 
+  #root > div.flex.h-\[100dvh\] main .flex.items-center.gap-2,
+  #root > div.flex.h-\[100dvh\] main .flex.items-center.gap-3 {
+    min-width: 0;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex.items-center.gap-2 > *,
+  #root > div.flex.h-\[100dvh\] main .flex.items-center.gap-3 > * {
+    min-width: 0;
+  }
+
   /* Dialog forms and employee/violation detail grids stack on a phone. */
   #root > div.flex.h-\[100dvh\] main .grid.grid-cols-2,
   #root > div.flex.h-\[100dvh\] main .grid.grid-cols-3,
@@ -452,6 +531,12 @@ body,
   #root > div.flex.h-\[100dvh\] main [role='tab'] {
     min-height: 42px;
     flex: 1 1 auto;
+    text-align: center;
+  }
+
+  #root > div.flex.h-\[100dvh\] main [role='tablist'] > button,
+  #root > div.flex.h-\[100dvh\] main [role='tablist'] > a {
+    min-width: min(7rem, 100%);
   }
 
   #root > div.flex.h-\[100dvh\] main table {
@@ -470,6 +555,11 @@ body,
 
   #root > div.flex.h-\[100dvh\] main table button {
     min-width: 42px;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table td > *,
+  #root > div.flex.h-\[100dvh\] main table th > * {
+    max-width: 100%;
   }
 
   /* Let names, offices, reasons and salary descriptions use their full
