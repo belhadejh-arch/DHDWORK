@@ -168,7 +168,7 @@ export async function getEmployeeByCode(code: string) {
     if (db) {
       const allEmps = await db.select().from(employees);
       const allOffices = await db.select().from(offices);
-      const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+      const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
 
       const matched = allEmps.find((e: any) => {
         const serial = String(e.serialNumber || "").toLowerCase();
@@ -225,7 +225,7 @@ export async function getEmployeeByQrSecret(secret: string) {
     const matched = result[0];
     if (matched) {
       const allOffices = await db.select().from(offices);
-      const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+      const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
       return formatEmployee(matched, officeMap);
     }
   } catch (err) {
@@ -240,7 +240,7 @@ export async function getEmployeeById(id: number) {
     const res = await db.select().from(employees).where(eq(employees.id, Number(id)));
     if (res.length > 0) {
       const allOffices = await db.select().from(offices);
-      const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+      const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
       return formatEmployee(res[0], officeMap);
     }
   } catch (err) {
@@ -254,7 +254,7 @@ export async function listEmployees(queryFilter?: any) {
     const db = getDb();
     const allEmps = await db.select().from(employees).orderBy(asc(employees.id));
     const allOffices = await db.select().from(offices);
-    const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+    const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
 
     let result = allEmps.map((e: any) => formatEmployee(e, officeMap));
 
@@ -420,7 +420,7 @@ export async function rotateEmployeeQr(id: number) {
     .returning();
   if (!updated) return null;
   const allOffices = await db.select().from(offices);
-  return formatEmployee(updated, new Map(allOffices.map((o: any) => [Number(o.id), o.name])));
+  return formatEmployee(updated, new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string])));
 }
 
 export async function rotateOfficeQr(id: number) {
@@ -1032,7 +1032,7 @@ export async function listFormerEmployees() {
   const db = getDb();
   const allEmps = await db.select().from(employees);
   const allOffices = await db.select().from(offices);
-  const officeMap = new Map(allOffices.map((o: any) => [Number(o.id), o.name]));
+  const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
   return allEmps
     .filter((e: any) => e.deletedAt != null || e.isActive === false)
     .map((e: any) => formatEmployee(e, officeMap));
@@ -1047,7 +1047,7 @@ export async function restoreEmployee(id: number) {
     .returning();
   if (!updated) return null;
   const allOffices = await db.select().from(offices);
-  return formatEmployee(updated, new Map(allOffices.map((o: any) => [Number(o.id), o.name])));
+  return formatEmployee(updated, new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string])));
 }
 
 export async function permanentlyDeleteEmployee(id: number) {

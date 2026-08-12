@@ -739,24 +739,24 @@ app.get('/employee/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const list = await listNotifications('employee', ctx.employee.id);
-  res.json(list);
+  return res.json(list);
 });
 
 app.post('/employee/notifications/read-all', async (req, res) => {
   await markNotificationsRead();
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 app.post('/employee/notifications/:id/read', async (req, res) => {
   const n = await markSingleNotificationRead(Number(req.params.id));
-  res.json({ success: true, notification: n });
+  return res.json({ success: true, notification: n });
 });
 
 app.get('/employee/salaries', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const list = await listSalaries(ctx.employee.id);
-  res.json(list);
+  return res.json(list);
 });
 
 app.get('/employee/salaries/:month/payslip', async (req, res) => {
@@ -772,46 +772,46 @@ app.get('/employee/salary-balance', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const balance = await getEmployeeSalaryBalance(ctx.employee.id);
-  res.json(balance);
+  return res.json(balance);
 });
 
 app.get('/employee/requests', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  const [advances, leaves, vacations] = await Promise.all([
+  const [adv, leaves, vacations] = await Promise.all([
     listAdvances(ctx.employee.id),
     listLeaveRequests(ctx.employee.id),
     listVacationRequests(ctx.employee.id)
   ]);
-  res.json({ advances, leaveRequests: leaves, vacationRequests: vacations });
+  return res.json({ advances: adv, leaveRequests: leaves, vacationRequests: vacations });
 });
 
 app.post('/employee/requests/advance', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const record = await createAdvance({ ...req.body, employeeId: ctx.employee.id });
-  res.status(201).json(record);
+  return res.status(201).json(record);
 });
 
 app.post('/employee/requests/leave', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const record = await createLeaveRequest({ ...req.body, employeeId: ctx.employee.id });
-  res.status(201).json(record);
+  return res.status(201).json(record);
 });
 
 app.post('/employee/requests/vacation', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const record = await createVacationRequest({ ...req.body, employeeId: ctx.employee.id });
-  res.status(201).json(record);
+  return res.status(201).json(record);
 });
 
 app.get('/employee/violations', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const list = await listViolations(ctx.employee.id);
-  res.json(list);
+  return res.json(list);
 });
 
 // Compatibility routes used by the imported employee WebView. They retain the
