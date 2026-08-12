@@ -151,19 +151,22 @@ body,
   min-width: 0;
 }
 
-/* Every table remains readable at its natural width and scrolls inside its
-   card when the viewport is narrower than the table. */
+/* Keep table containers bounded. On phones the table itself becomes a
+   labelled card list below; horizontal scrolling is reserved for exceptional
+   content such as a chart or an export preview. */
 #root > div.flex.h-\[100dvh\] main div:has(> table),
 #root > div.flex.h-\[100dvh\] main .overflow-x-auto {
   max-width: 100%;
-  overflow-x: auto;
+  min-width: 0;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
 
 #root > div.flex.h-\[100dvh\] main table {
-  min-width: 38rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 @media (max-width: 767px) {
@@ -225,9 +228,6 @@ body,
     max-width: 100%;
   }
 
-  #root > div.flex.h-\[100dvh\] main table {
-    min-width: 36rem;
-  }
 }
 
 @media (max-width: 380px) {
@@ -539,10 +539,6 @@ body,
     min-width: min(7rem, 100%);
   }
 
-  #root > div.flex.h-\[100dvh\] main table {
-    min-width: 40rem;
-  }
-
   #root > div.flex.h-\[100dvh\] main table td,
   #root > div.flex.h-\[100dvh\] main table th {
     padding: 0.65rem 0.75rem;
@@ -555,11 +551,6 @@ body,
 
   #root > div.flex.h-\[100dvh\] main table button {
     min-width: 42px;
-  }
-
-  #root > div.flex.h-\[100dvh\] main table td > *,
-  #root > div.flex.h-\[100dvh\] main table th > * {
-    max-width: 100%;
   }
 
   /* Let names, offices, reasons and salary descriptions use their full
@@ -590,7 +581,144 @@ body,
     min-height: 44px;
   }
 
-  #root > div.flex.h-\[100dvh\] main table {
-    min-width: 36rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Mobile record cards
+   The small companion script supplies data-label from the translated table
+   header, so Arabic, French and English remain correct without hard-coded
+   language-specific selectors.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  #root > div.flex.h-\[100dvh\] main div:has(> table),
+  #root > div.flex.h-\[100dvh\] main .overflow-x-auto {
+    overflow-x: visible;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex.overflow-x-auto {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main [class*='w-[180px]'],
+  #root > div.flex.h-\[100dvh\] main [class*='w-[200px]'],
+  #root > div.flex.h-\[100dvh\] main [class*='w-[320px]'] {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] {
+    display: block;
+    width: 100%;
+    min-width: 0 !important;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: auto;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] thead {
+    display: none;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] tbody {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 0.75rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.9rem;
+    background: hsl(var(--card));
+    box-shadow: 0 2px 8px rgb(15 23 42 / 0.04);
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td {
+    display: grid;
+    grid-template-columns: minmax(6.25rem, 38%) minmax(0, 1fr);
+    gap: 0.7rem;
+    align-items: start;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 0.72rem 0.8rem;
+    border: 0;
+    text-align: start;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td + td {
+    border-top: 1px solid hsl(var(--border) / 0.7);
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td::before {
+    content: attr(data-label);
+    min-width: 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.45;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td > * {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td[colspan] {
+    display: block;
+    padding: 1.1rem 0.85rem;
+    text-align: center;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td[colspan]::before {
+    display: none;
+    content: none;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] tr:has(td[colspan]) {
+    display: block;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td:last-child > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td:last-child button,
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td:last-child a {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  /* Long names and translated labels must wrap as whole words in Arabic. */
+  #root > div.flex.h-\[100dvh\][dir='rtl'] main,
+  #root > div.flex.h-\[100dvh\][dir='rtl'] main * {
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+
+  #root > div.flex.h-\[100dvh\][dir='rtl'] main .truncate {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 }
