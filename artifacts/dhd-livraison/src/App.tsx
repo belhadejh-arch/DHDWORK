@@ -9,15 +9,18 @@ import {
   BadgeCheck,
   Building2,
   CalendarDays,
+  ClipboardCheck,
   Hash,
   LogIn,
   LogOut,
   Mail,
+  MapPin,
   Phone,
   QrCode,
   ShieldCheck,
   UserRound,
   WalletCards,
+  XCircle,
 } from 'lucide-react';
 import {
   Route,
@@ -53,7 +56,30 @@ type LoginResponse = {
   employee?: Employee;
 };
 
+type AttendanceRecord = {
+  id: number;
+  date?: string | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  workedMinutes?: number | null;
+  lateMinutes?: number | null;
+  isAbsent?: boolean | null;
+};
+
+type ViolationRecord = {
+  id: number;
+  reason?: string | null;
+  violationType?: string | null;
+  type?: string | null;
+  amount?: string | number | null;
+  deductionAmount?: string | number | null;
+  violationDate?: string | null;
+  date?: string | null;
+  status?: string | null;
+};
+
 const EMPLOYEE_STORAGE_KEY = 'dhd_employee_session';
+const EMPLOYEE_TOKEN_KEY = 'dhd_employee_token';
 
 function readStoredEmployee(): Employee | null {
   try {
@@ -78,17 +104,21 @@ function useEmployeeSession() {
   useEffect(() => {
     let cancelled = false;
     const stored = readStoredEmployee();
-    const token = window.localStorage.getItem('dhd_employee_token');
+    const token = window.localStorage.getItem(EMPLOYEE_TOKEN_KEY);
 
     // A cached employee renders the account immediately. The server check runs
     // in the background to keep the page fast without trusting stale sessions.
-    fetch('/employee/me', {
+    fetch('/api/auth/me', {
       credentials: 'include',
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     })
       .then(async (response) => {
         if (!response.ok) throw new Error('session-expired');
-        return response.json() as Promise<Employee>;
+        const data = await response.json() as { isAuthenticated?: boolean; userType?: string; employee?: Employee };
+        if (!data.isAuthenticated || data.userType !== 'employee' || !data.employee) {
+          throw new Error('session-expired');
+        }
+        return data.employee;
       })
       .then((currentEmployee) => {
         if (cancelled) return;
@@ -125,13 +155,13 @@ function useEmployeeSession() {
     // second /me request before showing the employee account.
     setEmployee(data.employee);
     window.localStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(data.employee));
-    if (data.token) window.localStorage.setItem('dhd_employee_token', data.token);
-    navigate('/portal/account', { replace: true });
+    if (data.token) window.localStorage.setItem(EMPLOYEE_TOKEN_KEY, data.token);
+    navigate('/portal', { replace: true });
   }, [navigate]);
 
   const logout = useCallback(async () => {
     clearSession();
-    await fetch('/employee/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => undefined);
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => undefined);
     navigate('/portal/login', { replace: true });
   }, [clearSession, navigate]);
 
@@ -159,7 +189,7 @@ function EmployeeLogin() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (employee && !isChecking) navigate('/portal/account', { replace: true });
+    if (employee && !isChecking) navigate('/portal', { replace: true });
   }, [employee, isChecking, navigate]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -223,45 +253,7 @@ function EmployeeLogin() {
 }
 
 function EmployeeAccount() {
-  const { employee, isChecking, logout } = useEmployeeSession();
-  if (!employee && isChecking) return <LoadingScreen />;
-  if (!employee) return <Redirect to="/portal/login" />;
-
-  const fullName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 'الموظف';
-  const code = employee.employeeCode || employee.serialNumber || '—';
-  const joinedDate = employee.joinedAt
-    ? new Intl.DateTimeFormat('ar-DZ', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(employee.joinedAt))
-    : 'غير محدد';
-
-  return (
-    <main className="dhd-portal-page">
-      <header className="dhd-portal-header">
-        <Brand />
-        <button className="dhd-logout-button" type="button" onClick={logout}><LogOut size={17} /> خروج</button>
-      </header>
-      <div className="dhd-portal-content">
-        <Link href="/portal" className="dhd-back-link"><ArrowLeft size={17} /> الرئيسية</Link>
-        <section className="dhd-profile-hero">
-          <div className="dhd-avatar"><UserRound size={34} /></div>
-          <div>
-            <p className="dhd-eyebrow">الحساب الشخصي</p>
-            <h1>{fullName}</h1>
-            <p>{employee.position || employee.role || 'موظف'} {employee.officeName ? ` · ${employee.officeName}` : ''}</p>
-          </div>
-          <span className="dhd-status"><BadgeCheck size={17} /> حساب نشط</span>
-        </section>
-
-        <section className="dhd-account-grid" aria-label="بيانات الحساب">
-          <InfoCard icon={<Hash />} label="كود الموظف" value={code} ltr />
-          <InfoCard icon={<Building2 />} label="المكتب" value={employee.officeName || 'غير محدد'} />
-          <InfoCard icon={<Phone />} label="الهاتف" value={employee.phone || 'غير مضاف'} ltr />
-          <InfoCard icon={<Mail />} label="البريد الإلكتروني" value={employee.email || 'غير مضاف'} ltr />
-          <InfoCard icon={<CalendarDays />} label="تاريخ الانضمام" value={joinedDate} />
-          <InfoCard icon={<WalletCards />} label="المسمى الوظيفي" value={employee.position || employee.role || 'غير محدد'} />
-        </section>
-      </div>
-    </main>
-  );
+  return <Redirect to="/portal" />;
 }
 
 function InfoCard({ icon, label, value, ltr }: { icon: ReactNode; label: string; value: string; ltr?: boolean }) {
@@ -281,18 +273,189 @@ function EmployeeHome() {
   if (!employee && isChecking) return <LoadingScreen />;
   if (!employee) return <Redirect to="/portal/login" />;
   const fullName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 'الموظف';
+  const code = employee.employeeCode || employee.serialNumber || '—';
+  const joinedDate = employee.joinedAt
+    ? new Intl.DateTimeFormat('ar-DZ', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(employee.joinedAt))
+    : 'غير محدد';
+  const { attendance, violations, isLoading, error, refresh } = useEmployeePortalData(employee);
+  const [qrToken, setQrToken] = useState('');
+  const [attendanceAction, setAttendanceAction] = useState<'checkin' | 'checkout' | null>(null);
+  const [attendanceError, setAttendanceError] = useState('');
+  const today = new Date().toISOString().slice(0, 10);
+  const todayAttendance = attendance.find((item) => String(item.date || '').slice(0, 10) === today);
+
+  const submitAttendance = async (action: 'checkin' | 'checkout') => {
+    if (!qrToken.trim() || attendanceAction) return;
+    setAttendanceError('');
+    setAttendanceAction(action);
+    try {
+      const position = await getCurrentPosition();
+      const response = await fetch(`/api/attendance/${action}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...employeeAuthHeaders() },
+        body: JSON.stringify({
+          qrToken: qrToken.trim(),
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        }),
+      });
+      const data = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(data.message || 'تعذر تسجيل العملية');
+      setQrToken('');
+      await refresh();
+    } catch (reason) {
+      setAttendanceError(reason instanceof Error ? reason.message : 'تعذر تسجيل العملية');
+    } finally {
+      setAttendanceAction(null);
+    }
+  };
 
   return (
     <main className="dhd-portal-page">
       <header className="dhd-portal-header"><Brand /><button className="dhd-logout-button" type="button" onClick={logout}><LogOut size={17} /> خروج</button></header>
       <div className="dhd-portal-content">
-        <section className="dhd-welcome-card">
-          <div><p className="dhd-eyebrow">تم تسجيل الدخول بنجاح</p><h1>أهلاً {fullName}</h1><p>يمكنك الوصول إلى بيانات حسابك من هنا.</p></div>
-          <div className="dhd-welcome-icon"><BadgeCheck size={32} /></div>
+        <section className="dhd-profile-hero">
+          <div className="dhd-avatar"><UserRound size={34} /></div>
+          <div>
+            <p className="dhd-eyebrow">حساب الموظف</p>
+            <h1>أهلاً {fullName}</h1>
+            <p>{employee.position || employee.role || 'موظف'} {employee.officeName ? ` · ${employee.officeName}` : ''}</p>
+          </div>
+          <span className="dhd-status"><BadgeCheck size={17} /> حساب نشط</span>
         </section>
-        <Link href="/portal/account" className="dhd-account-link"><span><UserRound size={20} /> عرض حسابي</span><ArrowLeft size={18} /></Link>
+
+        <section className="dhd-account-grid" aria-label="بيانات الحساب">
+          <InfoCard icon={<Hash />} label="كود الموظف" value={code} ltr />
+          <InfoCard icon={<Building2 />} label="المكتب" value={employee.officeName || 'غير محدد'} />
+          <InfoCard icon={<Phone />} label="الهاتف" value={employee.phone || 'غير مضاف'} ltr />
+          <InfoCard icon={<Mail />} label="البريد الإلكتروني" value={employee.email || 'غير مضاف'} ltr />
+          <InfoCard icon={<CalendarDays />} label="تاريخ الانضمام" value={joinedDate} />
+          <InfoCard icon={<WalletCards />} label="المسمى الوظيفي" value={employee.position || employee.role || 'غير محدد'} />
+        </section>
+
+        <section className="dhd-section-card" aria-labelledby="attendance-title">
+          <div className="dhd-section-heading">
+            <div><p className="dhd-eyebrow">الحضور والانصراف</p><h2 id="attendance-title">سجل حضوري</h2></div>
+            <ClipboardCheck size={25} />
+          </div>
+          <div className="dhd-attendance-actions">
+            <label htmlFor="office-qr">رمز QR الخاص بالمكتب</label>
+            <div className="dhd-input-wrap">
+              <QrCode size={19} aria-hidden="true" />
+              <input id="office-qr" value={qrToken} onChange={(event) => setQrToken(event.target.value)} placeholder="امسح أو الصق رمز المكتب" dir="ltr" autoComplete="off" />
+            </div>
+            <div className="dhd-action-buttons">
+              <button type="button" className="dhd-action-button is-checkin" disabled={!qrToken.trim() || Boolean(attendanceAction) || Boolean(todayAttendance?.checkInTime)} onClick={() => submitAttendance('checkin')}>
+                <LogIn size={17} /> {attendanceAction === 'checkin' ? 'جارٍ التسجيل...' : 'تسجيل الحضور'}
+              </button>
+              <button type="button" className="dhd-action-button is-checkout" disabled={!qrToken.trim() || Boolean(attendanceAction) || !todayAttendance?.checkInTime || Boolean(todayAttendance?.checkOutTime)} onClick={() => submitAttendance('checkout')}>
+                <LogOut size={17} /> {attendanceAction === 'checkout' ? 'جارٍ التسجيل...' : 'تسجيل الخروج'}
+              </button>
+            </div>
+            <p className="dhd-helper"><MapPin size={14} /> يجب تفعيل GPS والتواجد داخل نطاق المكتب.</p>
+            {attendanceError && <p className="dhd-form-error" role="alert">{attendanceError}</p>}
+          </div>
+          <AttendanceTable records={attendance} isLoading={isLoading} error={error} />
+        </section>
+
+        <section className="dhd-section-card" aria-labelledby="violations-title">
+          <div className="dhd-section-heading">
+            <div><p className="dhd-eyebrow">المتابعة الإدارية</p><h2 id="violations-title">مخالفاتي</h2></div>
+            <XCircle size={25} />
+          </div>
+          {isLoading ? <p className="dhd-empty-state">جارٍ تحميل المخالفات...</p> : violations.length === 0 ? <p className="dhd-empty-state">لا توجد مخالفات مسجلة في حسابك.</p> : (
+            <div className="dhd-record-list">
+              {violations.map((violation) => (
+                <article className="dhd-record-row" key={violation.id}>
+                  <div><strong>{violation.violationType || violation.type || 'مخالفة'}</strong><span>{violation.reason || 'بدون سبب موضح'}</span></div>
+                  <div className="dhd-record-meta"><strong>{violation.amount ?? violation.deductionAmount ?? 0} دج</strong><span>{formatRecordDate(violation.violationDate || violation.date)}</span></div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </main>
+  );
+}
+
+function employeeAuthHeaders(): Record<string, string> {
+  const token = window.localStorage.getItem(EMPLOYEE_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function getCurrentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('المتصفح لا يدعم تحديد الموقع'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, () => reject(new Error('يجب السماح بتحديد الموقع لتسجيل الحضور')), {
+      enableHighAccuracy: true,
+      timeout: 8000,
+      maximumAge: 0,
+    });
+  });
+}
+
+function useEmployeePortalData(employee: Employee) {
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [violations, setViolations] = useState<ViolationRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    setError('');
+    try {
+      const headers = employeeAuthHeaders();
+      const [attendanceResponse, violationsResponse] = await Promise.all([
+        fetch('/api/attendance', { credentials: 'include', headers }),
+        fetch('/api/violations', { credentials: 'include', headers }),
+      ]);
+      if (!attendanceResponse.ok || !violationsResponse.ok) throw new Error('تعذر تحميل بيانات الموظف');
+      const [attendanceData, violationsData] = await Promise.all([
+        attendanceResponse.json() as Promise<AttendanceRecord[]>,
+        violationsResponse.json() as Promise<ViolationRecord[]>,
+      ]);
+      setAttendance(Array.isArray(attendanceData) ? attendanceData : []);
+      setViolations(Array.isArray(violationsData) ? violationsData : []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'تعذر تحميل البيانات');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [employee.id]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  return { attendance, violations, isLoading, error, refresh };
+}
+
+function formatRecordDate(value?: string | null) {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('ar-DZ', { year: 'numeric', month: 'short', day: 'numeric' }).format(parsed);
+}
+
+function AttendanceTable({ records, isLoading, error }: { records: AttendanceRecord[]; isLoading: boolean; error: string }) {
+  if (isLoading) return <p className="dhd-empty-state">جارٍ تحميل سجل الحضور...</p>;
+  if (error) return <p className="dhd-empty-state dhd-error-state">{error}</p>;
+  if (records.length === 0) return <p className="dhd-empty-state">لا توجد سجلات حضور بعد.</p>;
+  return (
+    <div className="dhd-table-wrap">
+      <table className="dhd-record-table">
+        <thead><tr><th>التاريخ</th><th>الحضور</th><th>الخروج</th><th>الحالة</th></tr></thead>
+        <tbody>{records.slice(0, 15).map((record) => (
+          <tr key={record.id}>
+            <td>{formatRecordDate(record.date)}</td>
+            <td dir="ltr">{record.checkInTime || '—'}</td>
+            <td dir="ltr">{record.checkOutTime || '—'}</td>
+            <td><span className={`dhd-attendance-status ${record.checkOutTime ? 'is-complete' : record.checkInTime ? 'is-open' : ''}`}>{record.checkOutTime ? 'مكتمل' : record.checkInTime ? 'حضور مسجل' : 'غياب'}</span></td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
   );
 }
 
@@ -308,7 +471,7 @@ function Router() {
       <Switch>
         <Route path="/" component={() => <Redirect to="/portal/login" />} />
         <Route path="/portal/login" component={EmployeeLogin} />
-        <Route path="/portal/account" component={EmployeeAccount} />
+        <Route path="/portal/account" component={() => <Redirect to="/portal" />} />
         <Route path="/portal" component={EmployeeHome} />
         <Route component={NotFound} />
       </Switch>

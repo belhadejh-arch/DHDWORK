@@ -57,11 +57,10 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: true,
     proxy: {
-      // The imported workspace runs the API on port 5000. Keeping this proxy
-      // local makes employee login work in the Replit preview as well as in
-      // the production path-routed deployment.
-      '/api': 'http://localhost:5000',
-      '/employee': 'http://localhost:5000',
+      // The managed API artifact listens on 8080. Employee self-service
+      // endpoints use the /api prefix, so static /employee-login.html remains
+      // a frontend asset instead of being captured by the proxy.
+      '/api': 'http://localhost:8080',
     },
     fs: {
       strict: true,

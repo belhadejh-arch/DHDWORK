@@ -405,9 +405,12 @@
       const data = await res.json();
 
       if (data.success && data.userType === 'employee') {
-        if (data.token) localStorage.setItem('employee_token', data.token);
+        if (data.token) {
+          localStorage.setItem('employee_token', data.token);
+          localStorage.setItem('dhd_employee_token', data.token);
+        }
         showToast('مرحباً ' + (data.employee?.firstName || '') + ' 👋', 'success');
-        setTimeout(() => { window.location.href = '/portal'; }, 900);
+        window.location.replace('/portal');
       } else {
         showToast(data.message || 'الرقم التسلسلي غير صحيح', 'error');
         btn.disabled = false;
@@ -488,9 +491,12 @@
       const data = await res.json();
 
       if (data.success && data.userType === 'employee') {
-        if (data.token) localStorage.setItem('employee_token', data.token);
+        if (data.token) {
+          localStorage.setItem('employee_token', data.token);
+          localStorage.setItem('dhd_employee_token', data.token);
+        }
         showToast('مرحباً ' + (data.employee?.firstName || '') + ' 👋', 'success');
-        setTimeout(() => { window.location.href = '/portal'; }, 900);
+        window.location.replace('/portal');
       } else {
         showToast(data.message || 'رمز QR غير صالح', 'error');
         scanning = false;

@@ -177,8 +177,12 @@ export async function getEmployeeByCode(code: string) {
       )).limit(1);
 
       if (directMatches[0]) {
-        const allOffices = await db.select().from(offices);
-        const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
+        const matchingOffice = directMatches[0].officeId
+          ? await db.select().from(offices).where(eq(offices.id, Number(directMatches[0].officeId))).limit(1)
+          : [];
+        const officeMap = new Map<number, string>(
+          matchingOffice.map((o: any) => [Number(o.id), o.name] as [number, string]),
+        );
         return formatEmployee(directMatches[0], officeMap);
       }
     }
@@ -558,12 +562,10 @@ export async function createOffice(data: any) {
 export async function listAttendance(employeeId?: number) {
   try {
     const db = getDb();
-    const all = await db.select().from(attendance);
-    let list = all;
     if (employeeId) {
-      list = list.filter((a: any) => Number(a.employeeId) === Number(employeeId));
+      return await db.select().from(attendance).where(eq(attendance.employeeId, Number(employeeId)));
     }
-    return list;
+    return await db.select().from(attendance);
   } catch (err) {
     throw err;
   }
@@ -916,12 +918,10 @@ export async function listViolations(employeeId?: number) {
   try {
     const db = getDb();
     if (db) {
-      const all = await db.select().from(violations);
-      let list = all;
       if (employeeId) {
-        list = list.filter((v: any) => Number(v.employeeId) === Number(employeeId));
+        return await db.select().from(violations).where(eq(violations.employeeId, Number(employeeId)));
       }
-      return list;
+      return await db.select().from(violations);
     }
   } catch (err) {
     console.warn("DB listViolations failed, using fallback:", err);

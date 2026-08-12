@@ -4,12 +4,13 @@
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (managed artifact port 8080)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Employee entry point: `/employee-login.html`; after login, the existing portal at `/portal` loads the employee's attendance, check-out, and violations.
 
 ## Render Deployment
 
@@ -55,7 +56,8 @@
 
 ## Gotchas
 
-- يجب توفير `DATABASE_URL` قبل تشغيل API.
+- يجب توفير `DATABASE_URL` قبل تشغيل API، ثم تطبيق المخطط التطويري عبر `pnpm --filter @workspace/db run push` عند استيراد مشروع جديد.
+- خدمة الموظفين تستخدم مسارات `/api/employee/*` عبر proxy الواجهة حتى يعمل الدخول والبوابة في المعاينة والإنتاج.
 - بعد تعديل API أعد تشغيل `artifacts/api-server: API Server`، وبعد تعديل الواجهة أعد تشغيل `artifacts/dhd-livraison: web`.
 - اختبر من خلال proxy على `localhost:80` (`/api/...`) وليس المنافذ المحلية مباشرة.
 

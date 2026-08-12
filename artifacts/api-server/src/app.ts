@@ -554,6 +554,10 @@ apiRouter.post('/attendance', async (req, res) => {
   res.status(201).json(record);
 });
 
+// Employee self-service attendance actions. Keeping this under /api makes it
+// available through the artifact proxy in both development and production.
+apiRouter.post('/attendance/:action', employeeAttendanceAction);
+
 apiRouter.get('/attendance/:id', async (req, res) => {
   const record = await getAttendanceById(Number(req.params.id));
   if (!record) return res.status(404).json({ message: 'سجل الحضور غير موجود' });
@@ -783,6 +787,73 @@ apiRouter.get('/stats/salary-chart', async (req, res) => {
 
 app.use('/api', apiRouter);
 
+// The imported employee bundle prefixes its self-service calls with /api.
+// Keep these aliases beside the original /employee routes so the old portal
+// can authenticate and load its own data without a second page or redirect.
+apiRouter.get('/employee/me', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(ctx.employee);
+});
+
+apiRouter.post('/employee/auth/logout', (req, res) => {
+  res.clearCookie('employee_token');
+  return res.json({ success: true });
+});
+
+apiRouter.get('/employee/attendance', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(await listAttendance(ctx.employee.id));
+});
+
+apiRouter.post('/employee/attendance/:action', employeeAttendanceAction);
+
+apiRouter.get('/employee/violations', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(await listViolations(ctx.employee.id));
+});
+
+apiRouter.get('/employee/salary-balance', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(await getEmployeeSalaryBalance(ctx.employee.id));
+});
+
+apiRouter.get('/employee/salaries', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(await listSalaries(ctx.employee.id));
+});
+
+apiRouter.get('/employee/requests', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const [advancesList, leaveList, vacationList] = await Promise.all([
+    listAdvances(ctx.employee.id),
+    listLeaveRequests(ctx.employee.id),
+    listVacationRequests(ctx.employee.id),
+  ]);
+  return res.json({ advances: advancesList, leaveRequests: leaveList, vacationRequests: vacationList });
+});
+
+apiRouter.get('/employee/notifications', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(await listNotifications('employee', ctx.employee.id));
+});
+
+apiRouter.post('/employee/notifications/read-all', async (req, res) => {
+  await markNotificationsRead();
+  return res.json({ success: true });
+});
+
+apiRouter.post('/employee/notifications/:id/read', async (req, res) => {
+  const notification = await markSingleNotificationRead(Number(req.params.id));
+  return res.json({ success: true, notification });
+});
+
 // Employee portal compatibility routes — all /employee/* paths used by the WebView
 app.get('/employee/me', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -900,7 +971,7 @@ app.get('/employee/attendance', async (req, res) => {
   return res.json(list);
 });
 
-app.post('/employee/attendance/:action', async (req, res) => {
+async function employeeAttendanceAction(req: express.Request, res: express.Response) {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   if (req.params.action !== 'checkin' && req.params.action !== 'checkout') {
@@ -962,7 +1033,9 @@ app.post('/employee/attendance/:action', async (req, res) => {
     longitude: empLng
   });
   return res.json({ ...updated, ok: true });
-});
+}
+
+app.post('/employee/attendance/:action', employeeAttendanceAction);
 
 // ─── Payslip HTML builder ──────────────────────────────────────────────────
 function buildPayslipHtml(data: any): string {
@@ -1130,7 +1203,6 @@ if (fs.existsSync(frontendDist)) {
   try {
     await seedOfficialOffices();
     // Ensure all existing admins have persistent serial numbers
-    const allAdmins = await listEmployees().catch(() => []);
     // listEmployees returns employees; for admins we use a direct approach via getAdminById
     // since we only have a small number of admins, iterate IDs 1-10 as a safe range
     for (let id = 1; id <= 20; id++) {
