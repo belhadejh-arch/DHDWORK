@@ -123,6 +123,63 @@ function formatEmployee(e: any, officeMap?: Map<number, string>) {
   };
 }
 
+function employeeName(employee: any) {
+  if (!employee) return null;
+  return `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || employee.serialNumber || `#${employee.id}`;
+}
+
+function timeToMinutes(value: unknown) {
+  if (!value) return null;
+  const parts = String(value).split(":").map(Number);
+  if (parts.some((part) => Number.isNaN(part)) || parts.length < 2) return null;
+  return parts[0] * 60 + parts[1];
+}
+
+function attendanceMetrics(record: any, employee?: any) {
+  const checkIn = timeToMinutes(record?.checkInTime);
+  const checkOut = timeToMinutes(record?.checkOutTime);
+  const start = timeToMinutes(employee?.workStartTime) ?? timeToMinutes(memoryStore.settings?.workStartTime) ?? 8 * 60;
+
+  const workedMinutes = record?.isAbsent
+    ? null
+    : record?.workedMinutes != null
+      ? Number(record.workedMinutes)
+      : checkIn != null && checkOut != null
+        ? (checkOut >= checkIn ? checkOut - checkIn : checkOut + 24 * 60 - checkIn)
+        : null;
+  const lateMinutes = record?.lateMinutes != null
+    ? Number(record.lateMinutes)
+    : checkIn != null
+      ? Math.max(0, checkIn - start)
+      : 0;
+  const isAbsent = Boolean(record?.isAbsent);
+  const status = isAbsent ? "absent" : lateMinutes > 0 ? "late" : checkIn != null ? "present" : "absent";
+
+  return { workedMinutes, lateMinutes, isAbsent, status };
+}
+
+function formatAttendanceRecord(record: any, employee?: any, office?: any, requestedDate?: string) {
+  const metrics = attendanceMetrics(record, employee);
+  return {
+    ...(record || {}),
+    id: record?.id ?? null,
+    employeeId: Number(employee?.id ?? record?.employeeId),
+    officeId: record?.officeId ?? employee?.officeId ?? office?.id ?? null,
+    date: record?.date || requestedDate || null,
+    employeeName: employeeName(employee) || record?.employeeName || "—",
+    officeName: office?.name || record?.officeName || null,
+    ...metrics,
+  };
+}
+
+function formatRequestRecord(record: any, employee?: any, office?: any) {
+  return {
+    ...record,
+    employeeName: employeeName(employee) || record?.employeeName || "—",
+    officeName: office?.name || record?.officeName || null,
+  };
+}
+
 // PostgreSQL is the source of truth. The local store is kept only for legacy
 // write compatibility; reads for identities, employees, offices, and QR never
 // fall back to generated or mock records.
@@ -559,13 +616,35 @@ export async function createOffice(data: any) {
 }
 
 // Attendance
-export async function listAttendance(employeeId?: number) {
+export async function listAttendance(employeeId?: number, dateFilter?: string) {
   try {
     const db = getDb();
-    if (employeeId) {
-      return await db.select().from(attendance).where(eq(attendance.employeeId, Number(employeeId)));
+    // The admin date view must include employees with no row for that day.
+    // Those rows are derived as absent; no database record is created.
+    if (!employeeId && dateFilter) {
+      const rows = await db
+        .select({ employee: employees, attendance: attendance, office: offices })
+        .from(employees)
+        .leftJoin(attendance, and(
+          eq(attendance.employeeId, employees.id),
+          eq(attendance.date, dateFilter),
+        ))
+        .leftJoin(offices, eq(offices.id, employees.officeId))
+        .where(eq(employees.isActive, true))
+        .orderBy(asc(employees.id));
+
+      return rows.map((row: any) => formatAttendanceRecord(row.attendance, row.employee, row.office, dateFilter));
     }
-    return await db.select().from(attendance);
+
+    const rows = await db
+      .select({ attendance: attendance, employee: employees, office: offices })
+      .from(attendance)
+      .leftJoin(employees, eq(employees.id, attendance.employeeId))
+      .leftJoin(offices, eq(offices.id, attendance.officeId))
+      .where(employeeId ? eq(attendance.employeeId, Number(employeeId)) : undefined)
+      .orderBy(desc(attendance.date), desc(attendance.id));
+
+    return rows.map((row: any) => formatAttendanceRecord(row.attendance, row.employee, row.office));
   } catch (err) {
     throw err;
   }
@@ -586,18 +665,15 @@ export async function recordAttendance(data: any) {
           officeId: Number(data.officeId || emp?.officeId || 1),
           date: dateStr,
           checkInTime: checkInTimeStr,
+          lateMinutes: attendanceMetrics({ checkInTime: checkInTimeStr, isAbsent: data.status === "absent" }, emp).lateMinutes,
+          isAbsent: data.status === "absent",
           checkInLat: data.latitude ? String(data.latitude) : null,
           checkInLng: data.longitude ? String(data.longitude) : null,
-          isAbsent: data.status === "absent",
           notes: data.notes || null
         })
         .returning();
       if (record) {
-        const fullRecord = {
-          ...record,
-          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
-        };
-        return fullRecord;
+        return formatAttendanceRecord(record, emp);
       }
     }
   } catch (err) {
@@ -622,15 +698,30 @@ export async function recordAttendance(data: any) {
 
 export async function completeAttendance(id: number, data: any) {
   const db = getDb();
+  const current = await db
+    .select({ attendance: attendance, employee: employees, office: offices })
+    .from(attendance)
+    .leftJoin(employees, eq(employees.id, attendance.employeeId))
+    .leftJoin(offices, eq(offices.id, attendance.officeId))
+    .where(eq(attendance.id, Number(id)))
+    .limit(1);
+  const existing = current[0];
+  if (!existing?.attendance) return null;
+  const metrics = attendanceMetrics({
+    ...existing.attendance,
+    checkOutTime: data.checkOutTime,
+  }, existing.employee);
   const [updated] = await db.update(attendance)
     .set({
       checkOutTime: data.checkOutTime,
+      workedMinutes: metrics.workedMinutes,
+      lateMinutes: metrics.lateMinutes,
       checkOutLat: data.latitude == null ? null : String(data.latitude),
       checkOutLng: data.longitude == null ? null : String(data.longitude)
     })
     .where(eq(attendance.id, Number(id)))
     .returning();
-  return updated || null;
+  return updated ? formatAttendanceRecord(updated, existing.employee, existing.office) : null;
 }
 
 // Advances
@@ -638,22 +729,19 @@ export async function listAdvances(employeeId?: number) {
   try {
     const db = getDb();
     if (db) {
-      const all = await db.select().from(advances);
-      let list = all;
-      if (employeeId) {
-        list = list.filter((a: any) => Number(a.employeeId) === Number(employeeId));
-      }
-      return list;
+      const rows = await db
+        .select({ request: advances, employee: employees, office: offices })
+        .from(advances)
+        .leftJoin(employees, eq(employees.id, advances.employeeId))
+        .leftJoin(offices, eq(offices.id, employees.officeId))
+        .where(employeeId ? eq(advances.employeeId, Number(employeeId)) : undefined)
+        .orderBy(desc(advances.requestedAt), desc(advances.id));
+      return rows.map((row: any) => formatRequestRecord(row.request, row.employee, row.office));
     }
   } catch (err) {
-    console.warn("DB listAdvances failed, using fallback:", err);
+    throw err;
   }
-
-  let list = memoryStore.advances;
-  if (employeeId) {
-    list = list.filter((a) => Number(a.employeeId) === Number(employeeId));
-  }
-  return list;
+  return [];
 }
 
 export async function createAdvance(data: any) {
@@ -731,22 +819,19 @@ export async function listLeaveRequests(employeeId?: number) {
   try {
     const db = getDb();
     if (db) {
-      const all = await db.select().from(leaveRequests);
-      let list = all;
-      if (employeeId) {
-        list = list.filter((l: any) => Number(l.employeeId) === Number(employeeId));
-      }
-      return list;
+      const rows = await db
+        .select({ request: leaveRequests, employee: employees, office: offices })
+        .from(leaveRequests)
+        .leftJoin(employees, eq(employees.id, leaveRequests.employeeId))
+        .leftJoin(offices, eq(offices.id, employees.officeId))
+        .where(employeeId ? eq(leaveRequests.employeeId, Number(employeeId)) : undefined)
+        .orderBy(desc(leaveRequests.requestedAt), desc(leaveRequests.id));
+      return rows.map((row: any) => formatRequestRecord(row.request, row.employee, row.office));
     }
   } catch (err) {
-    console.warn("DB listLeaveRequests failed, using fallback:", err);
+    throw err;
   }
-
-  let list = memoryStore.leaveRequests;
-  if (employeeId) {
-    list = list.filter((l) => Number(l.employeeId) === Number(employeeId));
-  }
-  return list;
+  return [];
 }
 
 export async function createLeaveRequest(data: any) {
@@ -825,22 +910,19 @@ export async function listVacationRequests(employeeId?: number) {
   try {
     const db = getDb();
     if (db) {
-      const all = await db.select().from(vacationRequests);
-      let list = all;
-      if (employeeId) {
-        list = list.filter((v: any) => Number(v.employeeId) === Number(employeeId));
-      }
-      return list;
+      const rows = await db
+        .select({ request: vacationRequests, employee: employees, office: offices })
+        .from(vacationRequests)
+        .leftJoin(employees, eq(employees.id, vacationRequests.employeeId))
+        .leftJoin(offices, eq(offices.id, employees.officeId))
+        .where(employeeId ? eq(vacationRequests.employeeId, Number(employeeId)) : undefined)
+        .orderBy(desc(vacationRequests.requestedAt), desc(vacationRequests.id));
+      return rows.map((row: any) => formatRequestRecord(row.request, row.employee, row.office));
     }
   } catch (err) {
-    console.warn("DB listVacationRequests failed, using fallback:", err);
+    throw err;
   }
-
-  let list = memoryStore.vacationRequests;
-  if (employeeId) {
-    list = list.filter((v) => Number(v.employeeId) === Number(employeeId));
-  }
-  return list;
+  return [];
 }
 
 export async function createVacationRequest(data: any) {
@@ -918,66 +1000,113 @@ export async function listViolations(employeeId?: number) {
   try {
     const db = getDb();
     if (db) {
-      if (employeeId) {
-        return await db.select().from(violations).where(eq(violations.employeeId, Number(employeeId)));
-      }
-      return await db.select().from(violations);
+      const rows = await db
+        .select({ violation: violations, employee: employees, office: offices })
+        .from(violations)
+        .leftJoin(employees, eq(employees.id, violations.employeeId))
+        .leftJoin(offices, eq(offices.id, employees.officeId))
+        .where(employeeId ? eq(violations.employeeId, Number(employeeId)) : undefined)
+        .orderBy(desc(violations.violationDate), desc(violations.createdAt), desc(violations.id));
+
+      return rows.map((row: any) => {
+        const amount = row.violation?.amount == null ? null : Number(row.violation.amount);
+        return {
+          ...formatRequestRecord(row.violation, row.employee, row.office),
+          amount,
+          // A violation is never pending. Keep the existing "deducted" label
+          // for the imported UI while preserving open/no-amount records.
+          status: amount != null && amount > 0 ? "deducted" : "applied",
+        };
+      });
     }
   } catch (err) {
-    console.warn("DB listViolations failed, using fallback:", err);
+    throw err;
   }
-
-  let list = memoryStore.violations;
-  if (employeeId) {
-    list = list.filter((v) => Number(v.employeeId) === Number(employeeId));
-  }
-  return list;
+  return [];
 }
 
 export async function createViolation(data: any) {
-  const emp = await getEmployeeById(Number(data.employeeId));
+  const employeeId = Number(data.employeeId);
   const vDate = data.date || new Date().toISOString().split("T")[0];
-
-  try {
-    const db = getDb();
-    if (db) {
-      const [record] = await db
-        .insert(violations)
-        .values({
-          employeeId: Number(data.employeeId),
-          violationType: data.type || "تأخير",
-          amount: String(data.deductionAmount || data.amount || 0),
-          reason: data.reason || "",
-          violationDate: vDate,
-          status: "applied"
-        })
-        .returning();
-      if (record) {
-        const fullRecord = {
-          ...record,
-          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
-        };
-        return fullRecord;
-      }
-    }
-  } catch (err) {
-    console.warn("DB createViolation failed, using fallback:", err);
+  const amount = Number(data.deductionAmount ?? data.amount ?? 0);
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error("مبلغ الخصم غير صالح");
   }
 
-  const record = {
-    id: memoryStore.violations.length > 0 ? Math.max(...memoryStore.violations.map((v) => v.id)) + 1 : 1,
-    employeeId: Number(data.employeeId),
-    employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف",
-    type: data.type || "تأخير",
-    deductionAmount: String(data.deductionAmount || 0),
-    reason: data.reason || "",
-    date: vDate,
-    status: "applied",
-    createdAt: new Date().toISOString()
+  const db = getDb();
+  const result = await db.transaction(async (tx: any) => {
+    const [record] = await tx
+      .insert(violations)
+      .values({
+        employeeId,
+        violationType: data.violationType || data.type || "manual",
+        amount: String(amount),
+        reason: data.reason || "",
+        notes: data.notes || null,
+        violationDate: vDate,
+        violationTime: data.violationTime || data.time || null,
+        // The old pending state is intentionally not used.
+        status: amount > 0 ? "deducted" : "applied",
+      })
+      .returning();
+
+    if (!record) throw new Error("تعذر تسجيل المخالفة");
+
+    let salaryId: number | null = null;
+    let deductionApplied = false;
+    if (amount > 0) {
+      const now = new Date();
+      const salaryRows = await tx
+        .select()
+        .from(salaries)
+        .where(and(eq(salaries.employeeId, employeeId), eq(salaries.year, now.getFullYear())));
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const salary = salaryRows
+        .filter((row: any) => String(row.month).padStart(2, "0") === month && row.status !== "paid")
+        .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
+
+      if (salary) {
+        const previousDeductions = Number(salary.violationDeductions || 0);
+        const currentFinalSalary = Number(salary.finalSalary ?? salary.baseSalary ?? 0);
+        await tx.update(salaries)
+          .set({
+            violationDeductions: String(previousDeductions + amount),
+            finalSalary: String(currentFinalSalary - amount),
+          })
+          .where(eq(salaries.id, salary.id));
+        salaryId = Number(salary.id);
+        deductionApplied = true;
+        await tx.update(violations).set({ salaryId }).where(eq(violations.id, record.id));
+      }
+    }
+
+    await tx.insert(notifications).values({
+      type: "violation_deduction",
+      message: amount > 0
+        ? `تم تسجيل مخالفة وخصم ${amount.toLocaleString("en-US")} DZD من رصيد الموظف #${employeeId}`
+        : `تم تسجيل مخالفة للموظف #${employeeId} بدون مبلغ خصم`,
+      recipientType: "admin",
+      recipientEmployeeId: null,
+      referenceId: record.id,
+      referenceIdType: "violation",
+      isRead: false,
+    });
+
+    return { record: { ...record, salaryId, status: amount > 0 ? "deducted" : "applied" }, deductionApplied };
+  });
+
+  const employee = await getEmployeeById(employeeId);
+  const officeRows = employee?.officeId
+    ? await db.select().from(offices).where(eq(offices.id, Number(employee.officeId)))
+    : [];
+  const office = officeRows[0] || null;
+  return {
+    ...formatRequestRecord(result.record, employee, office),
+    amount,
+    deductionApplied: result.deductionApplied,
+    success: true,
+    message: amount > 0 ? "تم تسجيل المخالفة وتطبيق الخصم مباشرة" : "تم تسجيل المخالفة",
   };
-  memoryStore.violations.unshift(record);
-  saveLocalStore();
-  return record;
 }
 
 // Salaries
@@ -1154,13 +1283,28 @@ export async function getAttendanceById(id: number) {
 
 export async function updateAttendance(id: number, data: any) {
   const db = getDb();
-  const updateData: any = {};
+  const current = await db
+    .select({ attendance: attendance, employee: employees, office: offices })
+    .from(attendance)
+    .leftJoin(employees, eq(employees.id, attendance.employeeId))
+    .leftJoin(offices, eq(offices.id, attendance.officeId))
+    .where(eq(attendance.id, Number(id)))
+    .limit(1);
+  const existing = current[0];
+  if (!existing?.attendance) return null;
+
+  const nextRecord = { ...existing.attendance, ...data };
+  const metrics = attendanceMetrics(nextRecord, existing.employee);
+  const updateData: any = {
+    workedMinutes: metrics.workedMinutes,
+    lateMinutes: metrics.lateMinutes,
+  };
   if (data.checkInTime !== undefined) updateData.checkInTime = data.checkInTime;
   if (data.checkOutTime !== undefined) updateData.checkOutTime = data.checkOutTime;
   if (data.isAbsent !== undefined) updateData.isAbsent = data.isAbsent;
   if (data.notes !== undefined) updateData.notes = data.notes;
   const [updated] = await db.update(attendance).set(updateData).where(eq(attendance.id, Number(id))).returning();
-  return updated || null;
+  return updated ? formatAttendanceRecord(updated, existing.employee, existing.office) : null;
 }
 
 export async function deleteAttendance(id: number) {
@@ -1178,12 +1322,40 @@ export async function getViolationById(id: number) {
 
 export async function updateViolation(id: number, data: any) {
   const db = getDb();
-  const updateData: any = { updatedAt: new Date() };
+  const current = await db.select().from(violations).where(eq(violations.id, Number(id))).limit(1);
+  if (!current[0]) return null;
+  const oldAmount = Number(current[0].amount || 0);
+  const nextAmount = data.amount !== undefined || data.deductionAmount !== undefined
+    ? Number(data.amount ?? data.deductionAmount ?? 0)
+    : oldAmount;
+  if (!Number.isFinite(nextAmount) || nextAmount < 0) throw new Error("مبلغ الخصم غير صالح");
+
+  const updateData: any = {
+    updatedAt: new Date(),
+    // Pending is not a valid violation state anymore.
+    status: nextAmount > 0 ? "deducted" : "applied",
+  };
   if (data.reason !== undefined) updateData.reason = data.reason;
   if (data.type !== undefined || data.violationType !== undefined) updateData.violationType = data.violationType || data.type;
-  if (data.amount !== undefined || data.deductionAmount !== undefined) updateData.amount = String(data.amount || data.deductionAmount);
-  if (data.status !== undefined) updateData.status = data.status;
-  const [updated] = await db.update(violations).set(updateData).where(eq(violations.id, Number(id))).returning();
+  if (data.amount !== undefined || data.deductionAmount !== undefined) updateData.amount = String(nextAmount);
+  if (data.notes !== undefined) updateData.notes = data.notes;
+  if (data.violationDate !== undefined || data.date !== undefined) updateData.violationDate = data.violationDate || data.date || null;
+  if (data.violationTime !== undefined || data.time !== undefined) updateData.violationTime = data.violationTime || data.time || null;
+
+  const [updated] = await db.transaction(async (tx: any) => {
+    const delta = nextAmount - oldAmount;
+    if (delta !== 0 && current[0].salaryId) {
+      const salaryRows = await tx.select().from(salaries).where(eq(salaries.id, Number(current[0].salaryId))).limit(1);
+      const salary = salaryRows[0];
+      if (salary) {
+        await tx.update(salaries).set({
+          violationDeductions: String(Number(salary.violationDeductions || 0) + delta),
+          finalSalary: String(Number(salary.finalSalary ?? salary.baseSalary ?? 0) - delta),
+        }).where(eq(salaries.id, salary.id));
+      }
+    }
+    return tx.update(violations).set(updateData).where(eq(violations.id, Number(id))).returning();
+  });
   return updated || null;
 }
 
@@ -1231,13 +1403,18 @@ export async function getEmployeeSalaryBalance(employeeId: number) {
   const empSalaries = await db.select().from(salaries).where(eq(salaries.employeeId, Number(employeeId)));
   const totalPaid = empSalaries.filter((s: any) => s.status === 'paid').reduce((sum: number, s: any) => sum + Number(s.finalSalary || 0), 0);
   const totalPending = empSalaries.filter((s: any) => s.status === 'pending').reduce((sum: number, s: any) => sum + Number(s.finalSalary || 0), 0);
+  const employeeViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(employeeId)));
+  const unlinkedDeductions = employeeViolations
+    .filter((v: any) => !v.salaryId)
+    .reduce((sum: number, v: any) => sum + Number(v.amount || 0), 0);
   const emp = await getEmployeeById(employeeId);
   return {
     employeeId,
     baseSalary: emp?.baseSalary || 0,
     totalPaid,
     totalPending,
-    balance: totalPending
+    totalViolationDeductions: employeeViolations.reduce((sum: number, v: any) => sum + Number(v.amount || 0), 0),
+    balance: totalPending - unlinkedDeductions
   };
 }
 

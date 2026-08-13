@@ -545,7 +545,8 @@ apiRouter.post('/qr/verify', async (req, res) => {
 apiRouter.get('/attendance', async (req, res) => {
   const ctx = await getAuthContext(req);
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
-  const list = await listAttendance(empId);
+  const dateFilter = typeof req.query.date === 'string' ? req.query.date : undefined;
+  const list = await listAttendance(empId, dateFilter);
   res.json(list);
 });
 
