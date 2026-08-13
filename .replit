@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "postgresql-16", "python-base-3.13"]
 
 [deployment]
 router = "application"
@@ -30,8 +30,8 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "sh -c 'fuser -k 5000/tcp 2>/dev/null; PORT=5000 NODE_ENV=production node artifacts/api-server/dist/index.mjs'"
-waitForPort = 5000
+args = "sh -c 'fuser -k 8080/tcp 2>/dev/null; PORT=8080 NODE_ENV=production node artifacts/api-server/dist/index.mjs'"
+waitForPort = 8080
 
 [workflows.workflow.metadata]
 outputType = "webview"

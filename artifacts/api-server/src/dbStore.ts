@@ -112,7 +112,9 @@ function formatEmployee(e: any, officeMap?: Map<number, string>) {
     position: e.position || e.role || null,
     officeId: e.officeId == null ? null : Number(e.officeId),
     officeName,
-    baseSalary: e.baseSalary == null ? null : String(e.baseSalary),
+    // The admin employee page formats this value immediately; keep the API
+    // numeric-safe even when an employee has not been assigned a salary yet.
+    baseSalary: e.baseSalary == null ? "0" : String(e.baseSalary),
     status: isAct ? "active" : "inactive",
     isActive: isAct,
     qrCodeSecret: e.qrCodeData || e.qrCodeSecret || null,
@@ -1463,10 +1465,25 @@ export async function createSalary(data: any) {
 
 export async function updateSalaryStatus(id: number, status: string, extra?: any) {
   const db = getDb();
+  const [before] = await db.select().from(salaries).where(eq(salaries.id, Number(id)));
   const updateData: any = { status };
   if (status === 'paid') updateData.paidAt = new Date();
   if (extra?.postponedUntil) updateData.postponedUntil = new Date(extra.postponedUntil);
   const [updated] = await db.update(salaries).set(updateData).where(eq(salaries.id, Number(id))).returning();
+  if (updated && before && before.status !== status && (status === 'paid' || status === 'postponed')) {
+    await db.insert(notifications).values({
+      type: status === 'paid' ? 'salary_paid' : 'salary_postponed',
+      message: status === 'paid'
+        ? 'تم صرف راتبك وإصدار كشف الراتب'
+        : 'تم تأجيل صرف راتبك',
+      recipientType: 'employee',
+      recipientEmployeeId: Number(updated.employeeId),
+      referenceId: Number(updated.id),
+      referenceIdType: 'salary',
+      isRead: false,
+      createdAt: new Date(),
+    });
+  }
   return updated || null;
 }
 
