@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import PDFDocument from 'pdfkit';
 
 import {
   getAdminByEmail,
@@ -699,19 +700,20 @@ apiRouter.get('/salaries', async (req, res) => {
   res.json(list);
 });
 
-function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
+function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>, pdfUrl?: string) {
   if (!data) return null;
   return {
     salary: data.salary,
     employee: data.employee,
-    companyName: 'DHD Livraison',
+    companyName: data.companyName || 'DHD Livraison',
     attendanceRecords: data.attendance,
     advances: data.advances,
     violations: data.violations,
     leaveRequests: [],
     vacationRequests: [],
-    bonuses: [],
+    bonuses: data.bonuses,
     summary: data.summary,
+    pdfUrl,
   };
 }
 
@@ -731,7 +733,10 @@ apiRouter.get('/salaries/:id', async (req, res) => {
 // browser-side renderer can produce the same professional document in both
 // account types.
 apiRouter.get('/salaries/:id/payslip', async (req, res) => {
-  const data = toPayslipPayload(await getSalaryPdfData(Number(req.params.id)));
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const salaryId = Number(req.params.id);
+  const data = toPayslipPayload(await getSalaryPdfData(salaryId), `/api/salaries/${salaryId}/pdf`);
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
 });
@@ -748,14 +753,13 @@ apiRouter.post('/salaries/:id/postpone', async (req, res) => {
   return res.json({ ...s, ok: true });
 });
 
-// PDF payslip — returns a self-contained printable HTML document (proper Arabic + print CSS)
+// PDF payslip — a real PDF stream that can be opened, downloaded, and printed
 apiRouter.get('/salaries/:id/pdf', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
   const data = await getSalaryPdfData(Number(req.params.id));
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
-  const html = buildPayslipHtml(data);
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `inline; filename="payslip-${data.salary.id}.html"`);
-  return res.send(html);
+  return sendPayslipPdf(res, data, req.query.download === '1');
 });
 
 // Notifications
@@ -981,7 +985,10 @@ app.get('/employee/salaries/:month/payslip', async (req, res) => {
   );
   if (!payslip) return res.status(404).json({ message: 'لم يتم العثور على كشف الراتب' });
 
-  const data = toPayslipPayload(await getSalaryPdfData(Number(payslip.id)));
+  const data = toPayslipPayload(
+    await getSalaryPdfData(Number(payslip.id)),
+    `/employee/salaries/${Number(payslip.id)}/pdf`,
+  );
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
 });
@@ -996,10 +1003,7 @@ app.get('/employee/salaries/:id/pdf', async (req, res) => {
   if (Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
     return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
   }
-  const html = buildPayslipHtml(data);
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `inline; filename="payslip-${data.salary.id}.html"`);
-  return res.send(html);
+  return sendPayslipPdf(res, data, req.query.download === '1');
 });
 
 app.get('/employee/salary-balance', async (req, res) => {
@@ -1123,6 +1127,267 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
 }
 
 app.post('/employee/attendance/:action', employeeAttendanceAction);
+
+const PDF_FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+const PDF_FONT_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+const PDF_LOGO_CANDIDATES = [
+  path.resolve(process.cwd(), 'artifacts/dhd-livraison/public/assets/1000034141-removebg-preview_1785699198526-C-34cSbP.png'),
+  path.resolve(process.cwd(), 'attached_assets/1000034141-removebg-preview_1786535542080.png'),
+  path.resolve(process.cwd(), 'public/assets/1000034141-removebg-preview_1785699198526-C-34cSbP.png'),
+];
+
+function pdfText(value: unknown, fallback = '—') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
+}
+
+function pdfAmount(value: unknown) {
+  const amount = Number(value || 0);
+  return `${Number.isFinite(amount) ? amount.toLocaleString('ar-DZ') : '0'} دج`;
+}
+
+function pdfDate(value: unknown) {
+  if (!value) return '—';
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? pdfText(value) : date.toLocaleDateString('ar-DZ');
+}
+
+function pdfMonth(month: unknown, year: unknown) {
+  const months: Record<string, string> = {
+    '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل',
+    '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس',
+    '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر',
+  };
+  const key = String(month ?? '').padStart(2, '0');
+  return `${months[key] || pdfText(month)} ${pdfText(year)}`;
+}
+
+function pdfFontPath(bold = false) {
+  const candidate = bold ? PDF_FONT_BOLD : PDF_FONT_REGULAR;
+  return fs.existsSync(candidate) ? candidate : bold ? 'Helvetica-Bold' : 'Helvetica';
+}
+
+function sendPayslipPdf(res: express.Response, data: any, download = false) {
+  const { salary, employee, summary } = data;
+  const employeeName = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
+  const period = pdfMonth(salary.month, salary.year);
+  const fileName = `كشف-راتب-${employee?.serialNumber || employee?.id || salary.id}-${salary.month}-${salary.year}.pdf`;
+  const doc = new PDFDocument({
+    size: 'A4',
+    margins: { top: 42, bottom: 52, left: 42, right: 42 },
+    info: {
+      Title: `كشف راتب - ${employeeName || 'موظف'} - ${period}`,
+      Author: data.companyName || 'DHD Livraison',
+      Subject: 'كشف راتب رسمي',
+    },
+  });
+
+  res.status(200);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${encodeURIComponent(fileName)}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  doc.pipe(res);
+
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const navy = '#12355B';
+  const blue = '#1E6BB8';
+  const pale = '#F3F7FB';
+  const border = '#D9E2EC';
+  const text = '#1F2937';
+  const muted = '#64748B';
+  const red = '#B42318';
+  const green = '#15803D';
+
+  const write = (value: unknown, x: number, y: number, width: number, options: any = {}) => {
+    doc.text(pdfText(value), x, y, {
+      width,
+      align: 'right',
+      lineBreak: false,
+      ...options,
+    });
+  };
+  const line = (y: number, color = border) => {
+    doc.save().moveTo(doc.page.margins.left, y).lineTo(doc.page.width - doc.page.margins.right, y)
+      .lineWidth(0.7).strokeColor(color).stroke().restore();
+  };
+  const sectionTitle = (title: string) => {
+    if (doc.y > doc.page.height - 150) doc.addPage();
+    const y = doc.y;
+    doc.roundedRect(doc.page.margins.left, y, pageWidth, 25, 4).fill(pale);
+    doc.rect(doc.page.width - doc.page.margins.right - 4, y, 4, 25).fill(blue);
+    doc.font(pdfFontPath(true)).fontSize(11).fillColor(navy);
+    write(title, doc.page.margins.left + 12, y + 7, pageWidth - 24);
+    doc.y = y + 36;
+  };
+  const tableHeader = (columns: Array<{ label: string; width: number }>) => {
+    const y = doc.y;
+    doc.rect(doc.page.margins.left, y, pageWidth, 23).fill(navy);
+    let x = doc.page.margins.left;
+    doc.font(pdfFontPath(true)).fontSize(8).fillColor('#FFFFFF');
+    columns.forEach((column) => {
+      write(column.label, x + 5, y + 7, column.width - 10, { align: 'right' });
+      x += column.width;
+    });
+    doc.y = y + 23;
+  };
+  const tableRow = (values: Array<unknown>, columns: Array<{ label: string; width: number }>, color = text) => {
+    if (doc.y > doc.page.height - 75) {
+      doc.addPage();
+      tableHeader(columns);
+    }
+    const y = doc.y;
+    doc.font(pdfFontPath(false)).fontSize(8).fillColor(color);
+    let x = doc.page.margins.left;
+    columns.forEach((column, index) => {
+      write(values[index], x + 5, y + 7, column.width - 10);
+      x += column.width;
+    });
+    line(y + 22);
+    doc.y = y + 23;
+  };
+  const metric = (label: string, value: unknown, x: number, y: number, width: number, fill: string, valueColor = text) => {
+    doc.roundedRect(x, y, width, 48, 5).fill(fill);
+    doc.font(pdfFontPath(false)).fontSize(8).fillColor(muted);
+    write(label, x + 8, y + 9, width - 16);
+    doc.font(pdfFontPath(true)).fontSize(13).fillColor(valueColor);
+    write(value, x + 8, y + 24, width - 16);
+  };
+
+  // Formal header with the real DHD logo when it is available.
+  doc.roundedRect(doc.page.margins.left, doc.y, pageWidth, 92, 8).fill(navy);
+  const headerY = doc.y;
+  const logoPath = PDF_LOGO_CANDIDATES.find((candidate) => fs.existsSync(candidate));
+  if (logoPath) {
+    try {
+      doc.image(logoPath, doc.page.margins.left + 16, headerY + 16, { fit: [70, 60], align: 'center', valign: 'center' });
+    } catch {
+      // The PDF remains valid if an optional logo asset is unavailable.
+    }
+  }
+  doc.font(pdfFontPath(true)).fontSize(19).fillColor('#FFFFFF');
+  write(data.companyName || 'DHD Livraison', doc.page.margins.left + 98, headerY + 19, pageWidth - 120);
+  doc.font(pdfFontPath(false)).fontSize(9).fillColor('#D9E8F7');
+  write('كشف راتب رسمي ومفصل', doc.page.margins.left + 98, headerY + 47, pageWidth - 120);
+  write(`الفترة: ${period}`, doc.page.margins.left + 98, headerY + 64, pageWidth - 120);
+  doc.y = headerY + 108;
+
+  sectionTitle('بيانات الموظف');
+  const infoColumns = [
+    ['اسم الموظف', employeeName],
+    ['رقم / معرف الموظف', employee?.serialNumber || employee?.employeeCode || employee?.id],
+    ['المسمى الوظيفي', employee?.position || employee?.role],
+    ['المكتب', employee?.officeName],
+    ['فترة الكشف', period],
+    ['حالة الراتب', salary.status === 'paid' ? 'مدفوع' : salary.status === 'postponed' ? 'مؤجل' : 'معلق'],
+  ];
+  const infoWidth = pageWidth / 2;
+  infoColumns.forEach(([label, value], index) => {
+    const row = Math.floor(index / 2);
+    const col = index % 2;
+    const x = doc.page.margins.left + col * infoWidth;
+    const y = doc.y + row * 31;
+    doc.font(pdfFontPath(false)).fontSize(8).fillColor(muted);
+    write(label, x + 8, y, infoWidth - 16);
+    doc.font(pdfFontPath(true)).fontSize(9).fillColor(text);
+    write(value, x + 8, y + 12, infoWidth - 16);
+    if (col === 1) line(y + 28);
+  });
+  doc.y += Math.ceil(infoColumns.length / 2) * 31 + 12;
+
+  sectionTitle('ملخص الحضور والعمل');
+  const metricWidth = (pageWidth - 18) / 4;
+  [
+    ['أيام العمل', summary.workDays ?? (summary.presentDays + summary.absentDays), `${summary.workDays ?? (summary.presentDays + summary.absentDays)} يوم`, pale, text],
+    ['أيام الحضور', summary.presentDays, `${summary.presentDays} يوم`, '#ECFDF3', green],
+    ['أيام الغياب', summary.absentDays, `${summary.absentDays} يوم`, '#FFF1F2', red],
+    ['أيام التأخير', summary.lateDays, `${summary.lateDays} يوم`, '#FFFBEB', '#A16207'],
+  ].forEach(([label, _value, display, fill, valueColor], index) => {
+    metric(String(label), display, doc.page.margins.left + index * (metricWidth + 6), doc.y, metricWidth, String(fill), String(valueColor));
+  });
+  doc.y += 62;
+  const attendanceColumns = [
+    { label: 'التاريخ', width: pageWidth * 0.19 },
+    { label: 'الدخول', width: pageWidth * 0.15 },
+    { label: 'الخروج', width: pageWidth * 0.15 },
+    { label: 'ساعات العمل', width: pageWidth * 0.18 },
+    { label: 'التأخير', width: pageWidth * 0.14 },
+    { label: 'الحالة', width: pageWidth * 0.19 },
+  ];
+  tableHeader(attendanceColumns);
+  const attendanceRecords = data.attendance || [];
+  if (attendanceRecords.length === 0) {
+    tableRow(['لا توجد سجلات حضور مسجلة لهذه الفترة', '', '', '', '', ''], attendanceColumns, muted);
+  } else {
+    attendanceRecords.forEach((record: any) => {
+      tableRow([
+        record.date,
+        record.checkInTime,
+        record.checkOutTime,
+        `${(Number(record.workedMinutes || 0) / 60).toFixed(1)} س`,
+        Number(record.lateMinutes || 0) > 0 ? `${record.lateMinutes} د` : '—',
+        record.isAbsent ? 'غائب' : Number(record.lateMinutes || 0) > 0 ? 'متأخر' : 'حاضر',
+      ], attendanceColumns, record.isAbsent ? red : text);
+    });
+  }
+  doc.y += 12;
+  doc.font(pdfFontPath(false)).fontSize(8).fillColor(muted);
+  write(`إجمالي ساعات العمل: ${(summary.workedHours || 0).toFixed(1)} س   |   إجمالي التأخير: ${summary.lateMinutes || 0} دقيقة   |   الوقت الإضافي: ${(summary.overtimeHours || 0).toFixed(1)} س`, doc.page.margins.left, doc.y, pageWidth);
+  doc.y += 24;
+
+  sectionTitle('تفاصيل الراتب والبدلات والخصومات');
+  const breakdownColumns = [
+    { label: 'البند', width: pageWidth * 0.68 },
+    { label: 'المبلغ', width: pageWidth * 0.32 },
+  ];
+  tableHeader(breakdownColumns);
+  const breakdownRows: Array<[string, string, string]> = [
+    ['الراتب الأساسي', pdfAmount(summary.baseSalary), green],
+    ['الوقت الإضافي', `+ ${pdfAmount(summary.overtimeBonus)}`, green],
+    ['الزيادات / المكافآت', `+ ${pdfAmount(summary.bonusTotal)}`, green],
+    ['خصم التأخير', `- ${pdfAmount(summary.lateDeduction)}`, red],
+    ['خصم السلف', `- ${pdfAmount(summary.advanceTotal)}`, red],
+    ['خصم المخالفات', `- ${pdfAmount(summary.violationTotal)}`, red],
+    ['خصومات أخرى', `- ${pdfAmount(summary.otherDeductions)}`, red],
+  ];
+  breakdownRows.forEach(([label, amount, color]) => tableRow([label, amount], breakdownColumns, color));
+  tableRow(['صافي الراتب النهائي', pdfAmount(summary.finalSalary)], breakdownColumns, navy);
+
+  const detailTable = (title: string, columns: Array<{ label: string; width: number }>, rows: unknown[][], empty: string) => {
+    doc.y += 16;
+    sectionTitle(title);
+    tableHeader(columns);
+    if (rows.length === 0) tableRow([empty, ...Array(columns.length - 1).fill('')], columns, muted);
+    else rows.forEach((row) => tableRow(row, columns));
+  };
+  detailTable('الزيادات والمكافآت', [
+    { label: 'التاريخ', width: pageWidth * 0.22 },
+    { label: 'السبب', width: pageWidth * 0.48 },
+    { label: 'المبلغ', width: pageWidth * 0.30 },
+  ], (data.bonuses || []).map((bonus: any) => [pdfDate(bonus.date || bonus.createdAt), bonus.reason || bonus.notes, `+ ${pdfAmount(bonus.amount)}`]), 'لا توجد زيادات مسجلة');
+  detailTable('السلف', [
+    { label: 'التاريخ', width: pageWidth * 0.22 },
+    { label: 'السبب', width: pageWidth * 0.48 },
+    { label: 'المبلغ', width: pageWidth * 0.30 },
+  ], (data.advances || []).map((advance: any) => [pdfDate(advance.requestedAt || advance.createdAt), advance.reason, `- ${pdfAmount(advance.amount)}`]), 'لا توجد سلف معتمدة');
+  detailTable('الخصومات والمخالفات', [
+    { label: 'التاريخ', width: pageWidth * 0.20 },
+    { label: 'النوع', width: pageWidth * 0.25 },
+    { label: 'السبب', width: pageWidth * 0.30 },
+    { label: 'المبلغ', width: pageWidth * 0.25 },
+  ], (data.violations || []).map((violation: any) => [
+    pdfDate(violation.violationDate || violation.createdAt),
+    violation.violationType || violation.type,
+    violation.reason || violation.notes,
+    `- ${pdfAmount(violation.amount)}`,
+  ]), 'لا توجد مخالفات أو خصومات مسجلة');
+
+  const footerY = doc.page.height - 42;
+  line(footerY - 8, navy);
+  doc.font(pdfFontPath(false)).fontSize(8).fillColor(muted);
+  write(`تاريخ إصدار الكشف: ${new Date().toLocaleDateString('ar-DZ')}   |   رقم الكشف: #${salary.id}`, doc.page.margins.left, footerY, pageWidth);
+  doc.end();
+  return res;
+}
 
 // ─── Payslip HTML builder ──────────────────────────────────────────────────
 function buildPayslipHtml(data: any): string {
@@ -1252,8 +1517,10 @@ function buildPayslipHtml(data: any): string {
 
 // Static frontend serving if available
 const publicDir = path.resolve(process.cwd(), 'public');
+const importedFrontendDir = path.resolve(process.cwd(), 'artifacts/dhd-livraison/public');
 const artifactsDir = path.resolve(process.cwd(), 'artifacts/dhd-livraison/dist/public');
-const frontendDist = fs.existsSync(path.join(publicDir, 'index.html')) ? publicDir : artifactsDir;
+const frontendDist = [publicDir, importedFrontendDir, artifactsDir]
+  .find((candidate) => fs.existsSync(path.join(candidate, 'index.html'))) || artifactsDir;
 
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));

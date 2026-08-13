@@ -11,6 +11,7 @@
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 - Employee entry point: `/employee-login.html`; after login, the existing portal at `/portal` loads the employee's attendance, check-out, and violations.
+- Payslips: admin PDF endpoints are `/api/salaries/:id/pdf` (open) and `/api/salaries/:id/pdf?download=1` (download); employee endpoints are `/employee/salaries/:id/pdf` and the same `download=1` variant. Both return a real `application/pdf` document built from PostgreSQL data.
 
 ## Render Deployment
 

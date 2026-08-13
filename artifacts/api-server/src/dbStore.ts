@@ -558,21 +558,59 @@ export async function getSalaryPdfData(salaryId: number) {
   const emp = await getEmployeeById(Number(salary.employeeId));
   const db = getDb();
 
-  const [allViolations, allAdvances, allAttendance] = await Promise.all([
+  const [allViolations, allAdvances, allAttendance, allBonuses] = await Promise.all([
     db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId))),
     db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId))),
-    db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)))
+    db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId))),
+    db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)))
   ]);
 
   const monthPrefix = `${salary.year}-${String(salary.month).padStart(2, "0")}`;
-  const monthViolations = allViolations.filter((v: any) => String(v.violationDate || "").startsWith(monthPrefix));
-  const approvedAdvances = allAdvances.filter((a: any) => a.status === "approved");
+  const inSalaryPeriod = (dateValue: unknown) => {
+    const normalized = dateValue instanceof Date ? dateValue.toISOString() : String(dateValue || "");
+    return normalized.startsWith(monthPrefix);
+  };
+  const monthViolations = allViolations.filter((v: any) =>
+    Number(v.salaryId) === Number(salary.id) || inSalaryPeriod(v.violationDate || v.createdAt)
+  );
+  const approvedAdvances = allAdvances.filter((a: any) =>
+    a.status === "approved" &&
+    (Number(a.salaryId) === Number(salary.id) || inSalaryPeriod(a.requestedAt || a.createdAt))
+  );
   const monthAttendance = allAttendance.filter((a: any) => String(a.date || "").startsWith(monthPrefix));
+  const monthBonuses = allBonuses.filter((b: any) =>
+    Number(b.salaryId) === Number(salary.id) || inSalaryPeriod(b.date || b.createdAt)
+  );
 
-  const presentDays = monthAttendance.filter((a: any) => !a.isAbsent).length || Number(salary.presentDays || 0);
-  const absentDays = monthAttendance.filter((a: any) => a.isAbsent).length || Number(salary.absentDays || 0);
-  const violationTotal = monthViolations.reduce((s: number, v: any) => s + Number(v.amount || 0), 0);
-  const advanceTotal = approvedAdvances.reduce((s: number, a: any) => s + Number(a.amount || 0), 0);
+  const attendancePresentDays = monthAttendance.filter((a: any) => !a.isAbsent && (a.checkInTime || a.checkOutTime)).length;
+  const attendanceAbsentDays = monthAttendance.filter((a: any) => a.isAbsent).length;
+  const presentDays = monthAttendance.length > 0 ? attendancePresentDays : Number(salary.presentDays ?? 0);
+  const absentDays = monthAttendance.length > 0 ? attendanceAbsentDays : Number(salary.absentDays ?? 0);
+  const violationTotalFromRecords = monthViolations.reduce((s: number, v: any) => s + Number(v.amount || 0), 0);
+  const advanceTotalFromRecords = approvedAdvances.reduce((s: number, a: any) => s + Number(a.amount || 0), 0);
+  const bonusTotalFromRecords = monthBonuses.reduce((s: number, b: any) => s + Number(b.amount || 0), 0);
+  const attendanceLateDeduction = monthAttendance.reduce((s: number, a: any) => s + Number(a.lateDeduction || 0), 0);
+  const attendanceOvertimeBonus = monthAttendance.reduce((s: number, a: any) => s + Number(a.overtimeBonus || 0), 0);
+  const lateMinutes = monthAttendance.reduce((s: number, a: any) => s + Number(a.lateMinutes || 0), 0);
+  const lateDays = monthAttendance.filter((a: any) => Number(a.lateMinutes || 0) > 0).length;
+  const workedMinutes = monthAttendance.reduce((s: number, a: any) => s + Number(a.workedMinutes || 0), 0);
+  const overtimeMinutes = monthAttendance.reduce((s: number, a: any) => s + Number(a.overtimeMinutes || 0), 0);
+
+  const numberOr = (value: unknown, fallback: number) => {
+    if (value === null || value === undefined || value === "") return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const baseSalary = numberOr(salary.baseSalary, numberOr(emp?.baseSalary, 0));
+  const violationTotal = numberOr(salary.violationDeductions, violationTotalFromRecords);
+  const advanceTotal = numberOr(salary.advanceDeductions, advanceTotalFromRecords);
+  const lateDeduction = numberOr(salary.lateDeductions, attendanceLateDeduction);
+  const overtimeBonus = numberOr(salary.overtimeBonus, attendanceOvertimeBonus);
+  const bonusTotal = numberOr(salary.bonuses, bonusTotalFromRecords);
+  const otherDeductions = numberOr(salary.otherDeductions, 0);
+  const computedFinalSalary = baseSalary + overtimeBonus + bonusTotal - lateDeduction - advanceTotal - violationTotal - otherDeductions;
+  const finalSalary = numberOr(salary.finalSalary, computedFinalSalary);
+  const settingsRecord = await getSettings();
 
   return {
     salary,
@@ -580,13 +618,24 @@ export async function getSalaryPdfData(salaryId: number) {
     violations: monthViolations,
     advances: approvedAdvances,
     attendance: monthAttendance,
+    bonuses: monthBonuses,
+    companyName: settingsRecord?.companyName || "DHD Livraison",
     summary: {
       presentDays,
       absentDays,
+      workDays: presentDays + absentDays,
+      lateDays,
+      lateMinutes,
+      workedHours: workedMinutes / 60,
+      overtimeHours: overtimeMinutes / 60,
       violationTotal,
       advanceTotal,
-      baseSalary: Number(salary.baseSalary || 0),
-      finalSalary: Number(salary.finalSalary || 0)
+      lateDeduction,
+      overtimeBonus,
+      bonusTotal,
+      otherDeductions,
+      baseSalary,
+      finalSalary
     }
   };
 }
