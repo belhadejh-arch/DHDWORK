@@ -14,12 +14,33 @@ body,
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+html,
+body {
+  min-height: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  touch-action: pan-y;
+}
+
+#root {
+  min-height: 100%;
 }
 
 /* Keep the admin app's flex shell from creating a second horizontal viewport. */
 #root > div.flex.h-\[100dvh\] {
   min-width: 0;
   max-width: 100%;
+  min-height: 100dvh;
+  height: 100dvh;
+  touch-action: pan-y;
 }
 
 #root > div.flex.h-\[100dvh\] > main {
@@ -53,7 +74,10 @@ body,
 #root > div.flex.h-\[100dvh\] > main > div.flex-1.overflow-y-auto {
   min-width: 0;
   overflow-x: hidden;
-  overscroll-behavior-x: none;
+  overflow-y: auto;
+  overscroll-behavior: auto;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 }
 
@@ -72,6 +96,9 @@ body,
   max-width: 100%;
   height: 100%;
   touch-action: pan-y;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .fixed.top-0.end-0.z-50 nav a {
@@ -167,6 +194,19 @@ body,
   width: 100%;
   max-width: 100%;
   min-width: 0;
+}
+
+/* The salary page has six desktop columns. On a phone each record is a
+   self-contained card, so employee, amount, date, status and actions never
+   compete for the same narrow row. */
+#root > div.flex.h-\[100dvh\] main table[data-salary-table] {
+  min-width: 0;
+}
+
+#root > div.flex.h-\[100dvh\] main table[data-salary-table] td,
+#root > div.flex.h-\[100dvh\] main table[data-salary-table] th {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 767px) {
@@ -639,6 +679,31 @@ body,
     box-shadow: 0 2px 8px rgb(15 23 42 / 0.04);
   }
 
+  #root > div.flex.h-\[100dvh\] main table[data-salary-table] tr {
+    gap: 0;
+    border-radius: 1rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-salary-table] td {
+    grid-template-columns: minmax(6.5rem, 36%) minmax(0, 1fr);
+    align-items: center;
+    padding: 0.78rem 0.85rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-salary-table] td:first-child {
+    background: hsl(var(--muted) / 0.35);
+    font-weight: 700;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-salary-table] td:last-child {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-salary-table] td:last-child::before {
+    display: block;
+  }
+
   #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td {
     display: grid;
     grid-template-columns: minmax(6.25rem, 38%) minmax(0, 1fr);
@@ -720,5 +785,93 @@ body,
     white-space: normal;
     overflow: visible;
     text-overflow: clip;
+  }
+}
+
+/* Header profile: keep the trigger compact and keep its menu inside the
+   viewport in Arabic, French and English. */
+#root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] {
+  position: relative;
+  max-width: min(15rem, 42vw);
+  min-width: 44px;
+  overflow: hidden;
+}
+
+#root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] > span:last-child {
+  min-width: 0;
+  max-width: 9rem;
+}
+
+#root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] p {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] ~ div[role='menu'],
+#root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] ~ div {
+  max-width: min(calc(100vw - 1rem), 18rem);
+  min-width: min(13rem, calc(100vw - 1rem));
+  overflow-wrap: anywhere;
+}
+
+[data-radix-menu-content]:has([data-testid='link-profile-settings']),
+[role='menu']:has([data-testid='link-profile-settings']) {
+  max-width: min(calc(100vw - 1rem), 18rem);
+  min-width: min(13rem, calc(100vw - 1rem));
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  #root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] {
+    max-width: 3.25rem;
+    padding: 0.15rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] > span:last-child {
+    display: none;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] ~ div[role='menu'],
+  #root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] ~ div {
+    position: fixed;
+    top: max(4.5rem, calc(env(safe-area-inset-top) + 4rem));
+    inset-inline-end: 0.75rem;
+    inset-inline-start: auto;
+    width: min(18rem, calc(100vw - 1.5rem));
+    min-width: 0;
+    max-height: calc(100dvh - 6rem);
+    overflow-y: auto;
+    z-index: 60;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-radix-menu-content]:has([data-testid='link-profile-settings']),
+  [role='menu']:has([data-testid='link-profile-settings']) {
+    position: fixed;
+    top: max(4.5rem, calc(env(safe-area-inset-top) + 4rem));
+    inset-inline-end: 0.75rem;
+    inset-inline-start: auto;
+    width: min(18rem, calc(100vw - 1.5rem));
+    min-width: 0;
+    max-height: calc(100dvh - 6rem);
+    overflow-y: auto;
+    z-index: 60;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 380px) {
+  #root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] ~ div[role='menu'],
+  #root > div.flex.h-\[100dvh\] > main > header [data-testid='button-profile'] ~ div {
+    inset-inline-end: 0.5rem;
+    width: calc(100vw - 1rem);
+  }
+
+  [data-radix-menu-content]:has([data-testid='link-profile-settings']),
+  [role='menu']:has([data-testid='link-profile-settings']) {
+    inset-inline-end: 0.5rem;
+    width: calc(100vw - 1rem);
   }
 }

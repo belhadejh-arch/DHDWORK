@@ -61,6 +61,32 @@
     });
   }
 
+  function enhanceSalaryTable(table) {
+    if (!(table instanceof HTMLTableElement)) return;
+    var text = (table.textContent || '').toLowerCase();
+    var header = table.querySelector('thead');
+    if (!header || (
+      text.indexOf('salary') < 0 &&
+      text.indexOf('الراتب') < 0 &&
+      text.indexOf('salaire') < 0
+    )) return;
+
+    table.setAttribute('data-salary-table', 'true');
+    var headerCells = header.rows[0] ? Array.prototype.slice.call(header.rows[0].cells) : [];
+    var labels = headerCells.map(function (cell) {
+      return (cell.textContent || '').replace(/\s+/g, ' ').trim();
+    });
+    Array.prototype.forEach.call(table.tBodies, function (body) {
+      Array.prototype.forEach.call(body.rows, function (row) {
+        Array.prototype.forEach.call(row.cells, function (cell, index) {
+          if (!cell.hasAttribute('colspan') && labels[index]) {
+            cell.setAttribute('data-label', labels[index]);
+          }
+        });
+      });
+    });
+  }
+
   function scan(root) {
     if (!root || !root.querySelectorAll) return;
     root.querySelectorAll('table').forEach(function (table) {
@@ -68,6 +94,7 @@
       if (text.indexOf('attendance') >= 0 || text.indexOf('الحضور') >= 0 || table.querySelector('th')) {
         enhanceAttendanceTable(table);
       }
+      enhanceSalaryTable(table);
     });
     removePendingViolationFilter();
     normalizeAppliedViolationLabels();

@@ -29,7 +29,6 @@ import {
   rotateOfficeQr,
   rotateAdminQr,
   updateAdmin,
-  ensureAdminSerial,
   seedOfficialOffices,
   getSalaryPdfData,
   listAttendance,
@@ -121,7 +120,12 @@ async function getAuthContext(req: express.Request) {
         userType: 'admin',
         admin: {
           id: admin.id,
-          email: admin.email || 'admin@dhd-livraison.dz',
+          email: admin.email || null,
+          serialNumber: admin.serialNumber || null,
+          username: admin.username || null,
+          firstName: admin.firstName || '',
+          lastName: admin.lastName || '',
+          phone: admin.phone || null,
           name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
           role: 'superadmin'
         }
@@ -160,7 +164,12 @@ apiRouter.post('/auth/login', async (req, res) => {
         token,
         admin: {
           id: admin.id,
-          email: admin.email || 'admin@dhd-livraison.dz',
+          email: admin.email || null,
+          serialNumber: admin.serialNumber || null,
+          username: admin.username || null,
+          firstName: admin.firstName || '',
+          lastName: admin.lastName || '',
+          phone: admin.phone || null,
           name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
           role: 'superadmin'
         }
@@ -227,7 +236,12 @@ apiRouter.post('/auth/login/qr', async (req, res) => {
       token,
       admin: {
         id: admin.id,
-        email: admin.email || '',
+        email: admin.email || null,
+        serialNumber: admin.serialNumber || null,
+        username: admin.username || null,
+        firstName: admin.firstName || '',
+        lastName: admin.lastName || '',
+        phone: admin.phone || null,
         name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
         role: 'superadmin'
       }
@@ -469,11 +483,13 @@ apiRouter.get('/admins/:id/qrcode', async (req, res) => {
 });
 
 apiRouter.get('/admins/:id/serial', async (req, res) => {
-  const admin = await ensureAdminSerial(Number(req.params.id));
+  // The profile must show the persisted identifier used by the account.
+  // Do not create a new serial as a side effect of opening the profile.
+  const admin = await getAdminById(Number(req.params.id));
   if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
   return res.json({
     adminId: admin.id,
-    serialNumber: admin.serialNumber,
+    serialNumber: admin.serialNumber || null,
     email: admin.email,
     name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD'
   });
@@ -1269,19 +1285,11 @@ if (fs.existsSync(frontendDist)) {
 }
 
 // ─── Startup initialisation ───────────────────────────────────────────────
-// Seed offices with real coordinates and ensure every admin has a serial number.
+// Seed offices with real coordinates. Admin identity fields remain untouched;
+// profile/login reads use the persisted values from PostgreSQL.
 (async () => {
   try {
     await seedOfficialOffices();
-    // Ensure all existing admins have persistent serial numbers
-    // listEmployees returns employees; for admins we use a direct approach via getAdminById
-    // since we only have a small number of admins, iterate IDs 1-10 as a safe range
-    for (let id = 1; id <= 20; id++) {
-      try {
-        const a = await getAdminById(id);
-        if (a) await ensureAdminSerial(id);
-      } catch { /* admin not found — skip */ }
-    }
   } catch (e) {
     console.warn('[startup] init error:', e);
   }
