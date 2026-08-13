@@ -7,8 +7,10 @@ import NotFound from '@/pages/not-found';
 import {
   ArrowLeft,
   BadgeCheck,
+  Bell,
   Building2,
   CalendarDays,
+  Check,
   ClipboardCheck,
   Hash,
   LogIn,
@@ -18,6 +20,7 @@ import {
   Phone,
   QrCode,
   ShieldCheck,
+  Trash2,
   UserRound,
   WalletCards,
   XCircle,
@@ -76,6 +79,15 @@ type ViolationRecord = {
   violationDate?: string | null;
   date?: string | null;
   status?: string | null;
+};
+
+type NotificationRecord = {
+  id: number;
+  type?: string | null;
+  message?: string | null;
+  isRead?: boolean | null;
+  createdAt?: string | null;
+  targetPath?: string | null;
 };
 
 const EMPLOYEE_STORAGE_KEY = 'dhd_employee_session';
@@ -176,6 +188,132 @@ function Brand() {
         <strong>DHD Livraison</strong>
         <span>بوابة الموظف</span>
       </div>
+    </div>
+  );
+}
+
+function NotificationPanel() {
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isMutating, setIsMutating] = useState(false);
+  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
+
+  const loadNotifications = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/notifications', {
+        credentials: 'include',
+        headers: { Accept: 'application/json', ...employeeAuthHeaders() },
+      });
+      if (!response.ok) return;
+      const data = await response.json() as NotificationRecord[];
+      setNotifications(Array.isArray(data) ? data : []);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadNotifications();
+    const interval = window.setInterval(() => void loadNotifications(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [loadNotifications]);
+
+  const mutateNotification = async (id: number, method: 'read' | 'delete') => {
+    setIsMutating(true);
+    try {
+      const response = await fetch(`/api/notifications/${id}${method === 'read' ? '/read' : ''}`, {
+        method: method === 'read' ? 'POST' : 'DELETE',
+        credentials: 'include',
+        headers: employeeAuthHeaders(),
+      });
+      if (!response.ok) return;
+      if (method === 'delete') {
+        setNotifications((current) => current.filter((notification) => notification.id !== id));
+      } else {
+        setNotifications((current) => current.map((notification) =>
+          notification.id === id ? { ...notification, isRead: true } : notification,
+        ));
+      }
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    if (!unreadCount || isMutating) return;
+    setIsMutating(true);
+    try {
+      const response = await fetch('/api/notifications/read-all', {
+        method: 'POST',
+        credentials: 'include',
+        headers: employeeAuthHeaders(),
+      });
+      if (response.ok) {
+        setNotifications((current) => current.map((notification) => ({ ...notification, isRead: true })));
+      }
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const openNotification = async (notification: NotificationRecord) => {
+    if (!notification.isRead) await mutateNotification(notification.id, 'read');
+    if (notification.targetPath) window.location.assign(notification.targetPath);
+  };
+
+  return (
+    <div className="dhd-notification-wrap">
+      <button
+        type="button"
+        className={`dhd-notification-trigger ${unreadCount ? 'has-unread' : ''}`}
+        aria-label={`الإشعارات${unreadCount ? `، ${unreadCount} غير مقروءة` : ''}`}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <Bell size={19} />
+        {unreadCount > 0 && <span className="dhd-notification-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+      </button>
+      {isOpen && (
+        <section className="dhd-notification-popover" aria-label="الإشعارات">
+          <div className="dhd-notification-heading">
+            <div><strong>الإشعارات</strong><span>{unreadCount ? `${unreadCount} غير مقروءة` : 'كل الإشعارات مقروءة'}</span></div>
+            <button type="button" onClick={() => void markAllAsRead()} disabled={!unreadCount || isMutating}>
+              <Check size={14} /> تحديد الكل كمقروء
+            </button>
+          </div>
+          <div className="dhd-notification-list">
+            {isLoading ? <p className="dhd-notification-empty">جارٍ تحميل الإشعارات...</p> : notifications.length === 0 ? (
+              <p className="dhd-notification-empty">لا توجد إشعارات.</p>
+            ) : notifications.map((notification) => (
+              <article
+                key={notification.id}
+                className={`dhd-notification-item ${notification.isRead ? 'is-read' : 'is-unread'}`}
+                onClick={() => void openNotification(notification)}
+              >
+                <button type="button" className="dhd-notification-content" onClick={() => void openNotification(notification)}>
+                  <span className="dhd-notification-state" aria-hidden="true" />
+                  <span>
+                    <strong>{notification.isRead ? 'مقروء' : 'غير مقروء'}</strong>
+                    <span>{notification.message || 'إشعار جديد'}</span>
+                    <small>{notification.createdAt ? formatRecordDate(notification.createdAt) : 'الآن'}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="dhd-notification-delete"
+                  aria-label="حذف الإشعار"
+                  onClick={(event) => { event.stopPropagation(); void mutateNotification(notification.id, 'delete'); }}
+                  disabled={isMutating}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -313,7 +451,7 @@ function EmployeeHome() {
 
   return (
     <main className="dhd-portal-page">
-      <header className="dhd-portal-header"><Brand /><button className="dhd-logout-button" type="button" onClick={logout}><LogOut size={17} /> خروج</button></header>
+      <header className="dhd-portal-header"><Brand /><div className="dhd-portal-actions"><NotificationPanel /><button className="dhd-logout-button" type="button" onClick={logout}><LogOut size={17} /> خروج</button></div></header>
       <div className="dhd-portal-content">
         <section className="dhd-profile-hero">
           <div className="dhd-avatar"><UserRound size={34} /></div>

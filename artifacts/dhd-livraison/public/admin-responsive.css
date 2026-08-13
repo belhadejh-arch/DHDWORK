@@ -1,3 +1,44 @@
+/* Shared notification state styles for the imported employee bundle. */
+.dhd-legacy-notification {
+  position: relative;
+  transition: background-color .18s ease, color .18s ease;
+}
+
+.dhd-legacy-notification-unread {
+  color: #b42318 !important;
+  background: #fff1f0 !important;
+  border-inline-start: 3px solid #dc4c45;
+}
+
+.dhd-legacy-notification-read {
+  color: #217346 !important;
+  background: #effaf2 !important;
+  border-inline-start: 3px solid #43a66f;
+}
+
+.dhd-legacy-notification-delete,
+.dhd-legacy-mark-all {
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 8px;
+  color: #b42318;
+  background: #ffe2df;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dhd-legacy-notification-delete {
+  position: absolute;
+  inset-inline-end: 8px;
+  top: 8px;
+}
+
+.dhd-legacy-mark-all {
+  margin-inline-start: auto;
+  color: #217346;
+  background: #e2f4e8;
+}
 /*
  * DHD Livraison — admin mobile experience
  *

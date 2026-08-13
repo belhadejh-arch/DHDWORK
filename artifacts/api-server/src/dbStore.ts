@@ -1,5 +1,5 @@
 import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins } from "../../../lib/db/src/index.js";
-import { eq, and, asc, desc, sql, like, or } from "drizzle-orm";
+import { eq, and, asc, desc, sql, like, or, isNull } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -1191,7 +1191,11 @@ export async function listNotifications(recipientType = "admin", recipientId?: n
       if (recipientId) {
         list = list.filter((n: any) => Number(n.recipientEmployeeId) === Number(recipientId) || n.recipientEmployeeId === null);
       }
-      return list;
+      return list.sort((a: any, b: any) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime || Number(b.id) - Number(a.id);
+      });
     }
   } catch (err) {
     console.warn("DB listNotifications failed, using fallback:", err);
@@ -1201,19 +1205,38 @@ export async function listNotifications(recipientType = "admin", recipientId?: n
   if (recipientId) {
     list = list.filter((n) => Number(n.recipientId) === Number(recipientId) || n.recipientId === null);
   }
-  return list;
+  return list
+    .map((n) => ({ ...n, isRead: Boolean(n.isRead ?? n.read) }))
+    .sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime || Number(b.id) - Number(a.id);
+    });
 }
 
-export async function markNotificationsRead() {
+export async function markNotificationsRead(recipientType = "admin", recipientId?: number) {
   try {
     const db = getDb();
     if (db) {
-      await db.update(notifications).set({ isRead: true });
+      const scope = recipientId
+        ? and(
+            eq(notifications.recipientType, recipientType),
+            or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+          )
+        : eq(notifications.recipientType, recipientType);
+      await db.update(notifications).set({ isRead: true }).where(scope);
     }
   } catch (err) {
     console.warn("DB markNotificationsRead failed:", err);
   }
-  memoryStore.notifications.forEach((n) => (n.read = true));
+  memoryStore.notifications.forEach((n) => {
+    const matchesRecipient = n.recipientType === recipientType;
+    const matchesEmployee = !recipientId || Number(n.recipientEmployeeId ?? n.recipientId) === Number(recipientId) || (n.recipientEmployeeId == null && n.recipientId == null);
+    if (matchesRecipient && matchesEmployee) {
+      n.isRead = true;
+      n.read = true;
+    }
+  });
   saveLocalStore();
   return true;
 }
@@ -1468,13 +1491,38 @@ export async function getEmployeeSalaryBalance(employeeId: number) {
 }
 
 // Notifications
-export async function markSingleNotificationRead(id: number) {
+export async function markSingleNotificationRead(id: number, recipientType = "admin", recipientId?: number) {
   try {
     const db = getDb();
-    const [updated] = await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, Number(id))).returning();
+    const scope = recipientId
+      ? and(
+          eq(notifications.id, Number(id)),
+          eq(notifications.recipientType, recipientType),
+          or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+        )
+      : and(eq(notifications.id, Number(id)), eq(notifications.recipientType, recipientType));
+    const [updated] = await db.update(notifications).set({ isRead: true }).where(scope).returning();
     return updated || null;
   } catch (err) {
     console.warn("markSingleNotificationRead failed:", err);
+    return null;
+  }
+}
+
+export async function deleteNotification(id: number, recipientType = "admin", recipientId?: number) {
+  try {
+    const db = getDb();
+    const scope = recipientId
+      ? and(
+          eq(notifications.id, Number(id)),
+          eq(notifications.recipientType, recipientType),
+          or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+        )
+      : and(eq(notifications.id, Number(id)), eq(notifications.recipientType, recipientType));
+    const [deleted] = await db.delete(notifications).where(scope).returning();
+    return deleted || null;
+  } catch (err) {
+    console.warn("deleteNotification failed:", err);
     return null;
   }
 }

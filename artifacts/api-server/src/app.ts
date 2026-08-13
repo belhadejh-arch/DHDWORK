@@ -60,6 +60,7 @@ import {
   listNotifications,
   markNotificationsRead,
   markSingleNotificationRead,
+  deleteNotification,
   getSettings,
   updateSettings,
   getDashboardStats
@@ -763,7 +764,20 @@ apiRouter.get('/salaries/:id/pdf', async (req, res) => {
 });
 
 // Notifications
-function notificationTargetPath(notification: { type?: string | null; referenceId?: number | null }) {
+function notificationTargetPath(notification: { type?: string | null; referenceId?: number | null; recipientType?: string | null }) {
+  const reference = notification.referenceId ? `?notificationId=${notification.referenceId}` : '';
+
+  if (notification.recipientType === 'employee') {
+    switch (notification.type) {
+      case 'violation_added':
+      case 'violation_updated':
+      case 'violation_deduction':
+        return notification.referenceId ? `/portal#violation-${notification.referenceId}` : '/portal';
+      default:
+        return '/portal';
+    }
+  }
+
   switch (notification.type) {
     case 'advance_request':
     case 'advance_approved':
@@ -774,17 +788,17 @@ function notificationTargetPath(notification: { type?: string | null; referenceI
     case 'vacation_request':
     case 'vacation_approved':
     case 'vacation_rejected':
-      return '/portal/requests';
+      return `/requests${reference}`;
     case 'violation_added':
     case 'violation_updated':
-      return '/portal/violations';
+      return `/violations${reference}`;
     case 'salary_due':
     case 'salary_paid':
     case 'salary_postponed':
-      return '/portal/account';
+      return `/salaries${reference}`;
     case 'attendance_alert':
     case 'late_alert':
-      return '/portal';
+      return `/attendance${reference}`;
     default:
       return '/portal';
   }
@@ -799,25 +813,50 @@ function withNotificationTarget(notification: any) {
 
 apiRouter.get('/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
-  const recipientType = ctx?.userType === 'employee' ? 'employee' : 'admin';
-  const recipientId = ctx?.userType === 'employee' ? ctx.employee.id : undefined;
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const recipientType = ctx.userType === 'employee' ? 'employee' : 'admin';
+  const recipientId = ctx.userType === 'employee' ? ctx.employee.id : undefined;
   const list = await listNotifications(recipientType, recipientId);
-  res.json(list.map(withNotificationTarget));
+  return res.json(list.map(withNotificationTarget));
 });
 
 apiRouter.post('/notifications/read-all', async (req, res) => {
-  await markNotificationsRead();
-  res.json({ success: true });
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const recipientType = ctx.userType === 'employee' ? 'employee' : 'admin';
+  const recipientId = ctx.userType === 'employee' ? ctx.employee.id : undefined;
+  await markNotificationsRead(recipientType, recipientId);
+  return res.json({ success: true });
 });
 
 apiRouter.post('/notifications/:id/read', async (req, res) => {
-  const n = await markSingleNotificationRead(Number(req.params.id));
-  res.json({ success: true, notification: n });
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const recipientType = ctx.userType === 'employee' ? 'employee' : 'admin';
+  const recipientId = ctx.userType === 'employee' ? ctx.employee.id : undefined;
+  const n = await markSingleNotificationRead(Number(req.params.id), recipientType, recipientId);
+  if (!n) return res.status(404).json({ message: 'الإشعار غير موجود' });
+  return res.json({ success: true, notification: n });
 });
 
 apiRouter.patch('/notifications/:id/read', async (req, res) => {
-  const n = await markSingleNotificationRead(Number(req.params.id));
-  res.json({ success: true, notification: n });
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const recipientType = ctx.userType === 'employee' ? 'employee' : 'admin';
+  const recipientId = ctx.userType === 'employee' ? ctx.employee.id : undefined;
+  const n = await markSingleNotificationRead(Number(req.params.id), recipientType, recipientId);
+  if (!n) return res.status(404).json({ message: 'الإشعار غير موجود' });
+  return res.json({ success: true, notification: n });
+});
+
+apiRouter.delete('/notifications/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const recipientType = ctx.userType === 'employee' ? 'employee' : 'admin';
+  const recipientId = ctx.userType === 'employee' ? ctx.employee.id : undefined;
+  const deleted = await deleteNotification(Number(req.params.id), recipientType, recipientId);
+  if (!deleted) return res.status(404).json({ message: 'الإشعار غير موجود' });
+  return res.json({ success: true, notification: deleted });
 });
 
 // Settings
@@ -926,12 +965,25 @@ apiRouter.get('/employee/notifications', async (req, res) => {
 });
 
 apiRouter.post('/employee/notifications/read-all', async (req, res) => {
-  await markNotificationsRead();
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  await markNotificationsRead('employee', ctx.employee.id);
   return res.json({ success: true });
 });
 
 apiRouter.post('/employee/notifications/:id/read', async (req, res) => {
-  const notification = await markSingleNotificationRead(Number(req.params.id));
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const notification = await markSingleNotificationRead(Number(req.params.id), 'employee', ctx.employee.id);
+  if (!notification) return res.status(404).json({ message: 'الإشعار غير موجود' });
+  return res.json({ success: true, notification });
+});
+
+apiRouter.delete('/employee/notifications/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const notification = await deleteNotification(Number(req.params.id), 'employee', ctx.employee.id);
+  if (!notification) return res.status(404).json({ message: 'الإشعار غير موجود' });
   return res.json({ success: true, notification });
 });
 
@@ -955,12 +1007,25 @@ app.get('/employee/notifications', async (req, res) => {
 });
 
 app.post('/employee/notifications/read-all', async (req, res) => {
-  await markNotificationsRead();
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  await markNotificationsRead('employee', ctx.employee.id);
   return res.json({ success: true });
 });
 
 app.post('/employee/notifications/:id/read', async (req, res) => {
-  const n = await markSingleNotificationRead(Number(req.params.id));
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const n = await markSingleNotificationRead(Number(req.params.id), 'employee', ctx.employee.id);
+  if (!n) return res.status(404).json({ message: 'الإشعار غير موجود' });
+  return res.json({ success: true, notification: n });
+});
+
+app.delete('/employee/notifications/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const n = await deleteNotification(Number(req.params.id), 'employee', ctx.employee.id);
+  if (!n) return res.status(404).json({ message: 'الإشعار غير موجود' });
   return res.json({ success: true, notification: n });
 });
 

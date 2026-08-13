@@ -688,6 +688,231 @@ button {
   backdrop-filter: blur(12px);
 }
 
+.dhd-portal-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dhd-notification-wrap {
+  position: relative;
+}
+
+.dhd-notification-trigger {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(80, 59, 40, .12);
+  border-radius: 12px;
+  color: #85776b;
+  background: #fffdfa;
+  cursor: pointer;
+  transition: .18s ease;
+}
+
+.dhd-notification-trigger:hover,
+.dhd-notification-trigger.has-unread {
+  color: #d9473f;
+  border-color: rgba(217, 71, 63, .26);
+  background: #fff2f1;
+}
+
+.dhd-notification-count {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  display: grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 4px;
+  border: 2px solid #fffdfa;
+  border-radius: 999px;
+  color: white;
+  background: #d9473f;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.dhd-notification-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 12px);
+  left: 0;
+  width: min(390px, calc(100vw - 28px));
+  overflow: hidden;
+  border: 1px solid rgba(80, 59, 40, .1);
+  border-radius: 18px;
+  background: #fffdfa;
+  box-shadow: 0 18px 45px rgba(70, 45, 25, .18);
+}
+
+.dhd-notification-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px;
+  border-bottom: 1px solid rgba(80, 59, 40, .08);
+}
+
+.dhd-notification-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.dhd-notification-heading strong {
+  color: #40362e;
+  font-size: 14px;
+}
+
+.dhd-notification-heading span {
+  color: #a4978a;
+  font-size: 11px;
+}
+
+.dhd-notification-heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  color: #26855e;
+  background: #e9f7ef;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dhd-notification-heading button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.dhd-notification-list {
+  max-height: min(440px, 65vh);
+  overflow-y: auto;
+}
+
+.dhd-notification-empty {
+  margin: 0;
+  padding: 34px 18px;
+  color: #9d9186;
+  text-align: center;
+  font-size: 12px;
+}
+
+.dhd-notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 13px 14px;
+  border-bottom: 1px solid rgba(80, 59, 40, .07);
+  cursor: pointer;
+  transition: background .18s ease;
+}
+
+.dhd-notification-item:last-child {
+  border-bottom: 0;
+}
+
+.dhd-notification-item:hover {
+  background: #fff8f1;
+}
+
+.dhd-notification-item.is-unread {
+  background: #fff0ef;
+}
+
+.dhd-notification-item.is-unread:hover {
+  background: #ffe9e7;
+}
+
+.dhd-notification-item.is-read {
+  background: #f0fbf4;
+}
+
+.dhd-notification-content {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: right;
+  cursor: pointer;
+}
+
+.dhd-notification-content > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.dhd-notification-content strong {
+  color: #c43d39;
+  font-size: 11px;
+}
+
+.dhd-notification-item.is-read .dhd-notification-content strong {
+  color: #26855e;
+}
+
+.dhd-notification-content span span {
+  overflow-wrap: anywhere;
+  color: #51473e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.dhd-notification-item.is-read .dhd-notification-content span span {
+  color: #397455;
+}
+
+.dhd-notification-content small {
+  color: #aa9e93;
+  font-size: 10px;
+}
+
+.dhd-notification-state {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #d9473f;
+  box-shadow: 0 0 0 4px rgba(217, 71, 63, .1);
+}
+
+.dhd-notification-item.is-read .dhd-notification-state {
+  background: #36a269;
+  box-shadow: 0 0 0 4px rgba(54, 162, 105, .1);
+}
+
+.dhd-notification-delete {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  color: #b9aaa0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dhd-notification-delete:hover {
+  color: #d9473f;
+  background: #ffe3e1;
+}
+
 .dhd-logout-button, .dhd-back-link {
   display: inline-flex;
   align-items: center;
@@ -853,6 +1078,7 @@ button {
   .dhd-auth-card { padding: 26px 20px; border-radius: 22px; }
   .dhd-auth-intro { margin-top: 35px; }
   .dhd-portal-header { padding: 16px 18px; }
+  .dhd-notification-popover { position: fixed; top: 74px; left: 14px; right: 14px; width: auto; }
   .dhd-portal-content { width: min(100% - 28px, 960px); padding-top: 24px; }
   .dhd-profile-hero { align-items: flex-start; flex-wrap: wrap; padding: 22px; }
   .dhd-status { margin-right: 0; }

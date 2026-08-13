@@ -1,1 +1,87 @@
-import{r as p,j as e}from"./vendor-react-C5hoFxUC.js";import{u as N,n as g,W as y,X as k,B as i,S as n,q as w,r as b,L as C,z as m}from"./index-DYVlzey9.js";import{C as R}from"./card-Cbb5VIJX.js";import{b as _}from"./vendor-query-BeEmy_aA.js";import{i as q,e as A,I,j as L,b as M,T as S,k as B,W as Q}from"./vendor-icons-DjWppej9.js";import"./vendor-radix-CvRamAWb.js";import"./vendor-charts-BpXFriVA.js";function E(){const{t:s}=N(),[t,d]=p.useState(!1),o=_(),{data:r=[],isLoading:u}=g({unreadOnly:t?!0:void 0}),x=y(),l=k(),c=a=>{x.mutate({id:a},{onSuccess:()=>o.invalidateQueries({queryKey:m()})})},f=()=>{l.mutate(void 0,{onSuccess:()=>o.invalidateQueries({queryKey:m()})})},h=a=>{switch(a){case"advance_request":return e.jsx(Q,{className:"h-5 w-5 text-amber-500"});case"leave_request":return e.jsx(B,{className:"h-5 w-5 text-emerald-500"});case"vacation_request":return e.jsx(S,{className:"h-5 w-5 text-teal-500"});case"salary_due":return e.jsx(M,{className:"h-5 w-5 text-primary"});case"attendance_alert":return e.jsx(L,{className:"h-5 w-5 text-rose-500"});default:return e.jsx(I,{className:"h-5 w-5 text-slate-500"})}},v=a=>{switch(a.type){case"advance_request":case"leave_request":case"vacation_request":return"/requests";case"violation_added":return"/violations";case"salary_due":return a.referenceId?`/employees/${a.referenceId}`:"/salaries";case"attendance_alert":case"late_alert":return"/attendance";default:return"/dashboard"}};return e.jsxs("div",{className:"space-y-6 max-w-4xl mx-auto",children:[e.jsxs("div",{className:"flex justify-between items-center",children:[e.jsxs("div",{children:[e.jsx("h1",{className:"text-3xl font-bold tracking-tight",children:s("nav.notifications")}),e.jsx("p",{className:"text-muted-foreground mt-1",children:s("notifications.subtitle")})]}),e.jsxs(i,{variant:"outline",onClick:f,disabled:l.isPending||r.every(a=>a.isRead),children:[e.jsx(q,{className:"h-4 w-4 mr-2"})," ",s("notifications.mark_all")]})]}),e.jsxs("div",{className:"flex gap-2 mb-4",children:[e.jsx(i,{variant:t?"secondary":"default",size:"sm",onClick:()=>d(!1),children:s("notifications.filter.all")}),e.jsx(i,{variant:t?"default":"secondary",size:"sm",onClick:()=>d(!0),children:s("notifications.filter.unread")})]}),e.jsx(R,{className:"shadow-sm overflow-hidden border-border/50",children:e.jsx("div",{className:"divide-y divide-border",children:u?e.jsx("div",{className:"p-8 text-center text-muted-foreground",children:s("action.loading")}):r.length===0?e.jsxs("div",{className:"p-12 text-center text-muted-foreground",children:[e.jsx(A,{className:"h-12 w-12 mx-auto mb-4 text-muted-foreground/30"}),e.jsx("p",{children:s("notifications.empty")})]}):r.map(a=>e.jsxs("div",{className:n("p-4 transition-colors hover:bg-muted/30 flex gap-4 items-start",a.isRead?"":"bg-primary/5"),onClick:()=>!a.isRead&&c(a.id),children:[e.jsx("div",{className:n("p-2 rounded-full mt-1 flex-shrink-0",a.isRead?"bg-muted":"bg-background shadow-sm"),children:h(a.type)}),e.jsxs("div",{className:"flex-1 min-w-0",children:[e.jsxs("div",{className:"flex justify-between items-start gap-4 mb-1",children:[e.jsx("p",{className:n("text-sm",a.isRead?"font-medium text-muted-foreground":"font-semibold"),children:a.message}),e.jsx("span",{className:"text-xs text-muted-foreground whitespace-nowrap",children:w(new Date(a.createdAt))?b(new Date(a.createdAt),{addSuffix:!0}):"الآن"})]}),e.jsxs("div",{className:"flex gap-3 items-center mt-2",children:[e.jsx(C,{href:v(a),className:"text-xs text-primary hover:underline font-medium",children:s("notifications.view")}),!a.isRead&&e.jsx("button",{className:"text-xs text-muted-foreground hover:text-foreground hover:underline",onClick:j=>{j.stopPropagation(),c(a.id)},children:s("notifications.mark_read")})]})]}),!a.isRead&&e.jsx("div",{className:"h-2 w-2 bg-primary rounded-full flex-shrink-0 mt-3"})]},a.id))})})]})}export{E as default};
+import{r as React,j as jsx}from"./vendor-react-C5hoFxUC.js";
+
+const apiHeaders=()=>{const token=window.localStorage.getItem("dhd_admin_token");return token?{Authorization:`Bearer ${token}`}:{}};
+
+function formatDate(value){
+  if(!value)return"الآن";
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())?"الآن":new Intl.DateTimeFormat("ar-DZ",{dateStyle:"medium",timeStyle:"short"}).format(date);
+}
+
+function Notifications(){
+  const[list,setList]=React.useState([]);
+  const[unreadOnly,setUnreadOnly]=React.useState(false);
+  const[loading,setLoading]=React.useState(true);
+  const[busy,setBusy]=React.useState(null);
+  const load=React.useCallback(async()=>{
+    try{
+      const response=await fetch("/api/notifications",{credentials:"include",headers:{Accept:"application/json",...apiHeaders()}});
+      if(response.ok){
+        const data=await response.json();
+        setList(Array.isArray(data)?data:[]);
+      }
+    }finally{setLoading(false)}
+  },[]);
+  React.useEffect(()=>{
+    void load();
+    const timer=window.setInterval(()=>void load(),30000);
+    return()=>window.clearInterval(timer);
+  },[load]);
+  const update=async(id,action)=>{
+    setBusy(`${action}-${id}`);
+    try{
+      const response=await fetch(`/api/notifications/${id}${action==="read"?"/read":""}`,{
+        method:action==="read"?"POST":"DELETE",credentials:"include",headers:apiHeaders()
+      });
+      if(!response.ok)return;
+      if(action==="delete")setList(items=>items.filter(item=>item.id!==id));
+      else setList(items=>items.map(item=>item.id===id?{...item,isRead:true}:item));
+    }finally{setBusy(null)}
+  };
+  const markAll=async()=>{
+    if(!list.some(item=>!item.isRead))return;
+    setBusy("all");
+    try{
+      const response=await fetch("/api/notifications/read-all",{method:"POST",credentials:"include",headers:apiHeaders()});
+      if(response.ok)setList(items=>items.map(item=>({...item,isRead:true})));
+    }finally{setBusy(null)}
+  };
+  const open=async(item)=>{
+    if(!item.isRead)await update(item.id,"read");
+    if(item.targetPath)window.location.assign(item.targetPath);
+  };
+  const visible=unreadOnly?list.filter(item=>!item.isRead):list;
+  const unread=list.filter(item=>!item.isRead).length;
+  return jsx.jsxs("div",{className:"space-y-6 max-w-4xl mx-auto",children:[
+    jsx.jsxs("div",{className:"flex justify-between items-center gap-4",children:[
+      jsx.jsxs("div",{children:[jsx.jsx("h1",{className:"text-3xl font-bold tracking-tight",children:"الإشعارات"}),jsx.jsx("p",{className:"text-muted-foreground mt-1",children:"تابع التنبيهات المرتبطة بسجلات النظام"})]}),
+      jsx.jsx("button",{type:"button",className:"inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50",onClick:markAll,disabled:busy==="all"||!unread,children:["✓ ","تحديد الكل كمقروء"]})
+    ]}),
+    jsx.jsxs("div",{className:"flex gap-2 mb-4",children:[
+      jsx.jsx("button",{type:"button",className:`rounded-md px-3 py-2 text-sm ${!unreadOnly?"bg-primary text-primary-foreground":"bg-muted"}`,onClick:()=>setUnreadOnly(false),children:"كل الإشعارات"}),
+      jsx.jsx("button",{type:"button",className:`rounded-md px-3 py-2 text-sm ${unreadOnly?"bg-primary text-primary-foreground":"bg-muted"}`,onClick:()=>setUnreadOnly(true),children:`غير المقروءة (${unread})`})
+    ]}),
+    jsx.jsx("div",{className:"rounded-xl border bg-card shadow-sm overflow-hidden",children:
+      loading?jsx.jsx("div",{className:"p-8 text-center text-muted-foreground",children:"جارٍ تحميل الإشعارات..."}):
+      visible.length===0?jsx.jsx("div",{className:"p-12 text-center text-muted-foreground",children:"لا توجد إشعارات."}):
+      jsx.jsx("div",{className:"divide-y",children:visible.map(item=>jsx.jsxs("article",{
+        className:`p-4 flex gap-3 items-start cursor-pointer transition-colors ${item.isRead?"bg-emerald-50/50 hover:bg-emerald-50":"bg-red-50 hover:bg-red-100"}`,
+        onClick:()=>void open(item),
+        children:[
+          jsx.jsx("span",{className:`mt-2 h-2.5 w-2.5 rounded-full flex-shrink-0 ${item.isRead?"bg-emerald-500":"bg-red-500"}`,children:""}),
+          jsx.jsxs("div",{className:"flex-1 min-w-0",children:[
+            jsx.jsx("p",{className:`text-sm ${item.isRead?"text-emerald-800":"font-semibold text-red-800"}`,children:item.message||"إشعار جديد"}),
+            jsx.jsx("p",{className:"text-xs text-muted-foreground mt-1",children:formatDate(item.createdAt)}),
+            jsx.jsxs("div",{className:"flex gap-3 items-center mt-2",children:[
+              jsx.jsx("span",{className:`text-xs font-medium ${item.isRead?"text-emerald-700":"text-red-700"}`,children:item.isRead?"مقروء":"غير مقروء"}),
+              jsx.jsx("span",{className:"text-xs text-primary hover:underline",children:"عرض السجل المرتبط"})
+            ]})
+          ]}),
+          jsx.jsx("button",{type:"button",className:"rounded-md p-2 text-muted-foreground hover:text-red-600 hover:bg-red-100",title:"حذف الإشعار",disabled:busy===`delete-${item.id}`,onClick:event=>{event.stopPropagation();void update(item.id,"delete")},children:"🗑"})
+        ]
+      },item.id))})
+    })
+  ]});
+}
+
+export default Notifications;
