@@ -57,7 +57,12 @@ import {
   createSalary,
   updateSalaryStatus,
   getEmployeeSalaryBalance,
+  listBonuses,
+  createBonus,
+  deleteBonus,
+  updateBonus,
   listNotifications,
+  createNotificationRecord,
   markNotificationsRead,
   markSingleNotificationRead,
   deleteNotification,
@@ -108,31 +113,29 @@ async function getAuthContext(req: express.Request) {
     }
   }
 
-  if (token.startsWith('admin_token_') || token === 'jwt_token_sample') {
-    const adminId = token.startsWith('admin_token_') ? Number(token.replace('admin_token_', '')) : NaN;
-    let admin = null;
-    if (!isNaN(adminId)) {
-      admin = await getAdminById(adminId);
+  if (token.startsWith('admin_token_')) {
+    const adminId = Number(token.replace('admin_token_', ''));
+    if (!isNaN(adminId) && adminId > 0) {
+      const admin = await getAdminById(adminId);
+      if (admin) {
+        return {
+          userType: 'admin',
+          admin: {
+            id: admin.id,
+            email: admin.email || null,
+            serialNumber: admin.serialNumber || null,
+            username: admin.username || null,
+            firstName: admin.firstName || '',
+            lastName: admin.lastName || '',
+            phone: admin.phone || null,
+            name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
+            role: 'superadmin'
+          }
+        };
+      }
     }
-    if (!admin) {
-      admin = await getAdminByEmail('admin@dhd-livraison.dz');
-    }
-    if (admin) {
-      return {
-        userType: 'admin',
-        admin: {
-          id: admin.id,
-          email: admin.email || null,
-          serialNumber: admin.serialNumber || null,
-          username: admin.username || null,
-          firstName: admin.firstName || '',
-          lastName: admin.lastName || '',
-          phone: admin.phone || null,
-          name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
-          role: 'superadmin'
-        }
-      };
-    }
+    // Unknown admin token — reject outright (no fallback to any default account)
+    return null;
   }
 
   return null;
@@ -328,21 +331,38 @@ apiRouter.post('/employees/seed-defaults', async (req, res) => {
 });
 
 apiRouter.get('/employees/attendance-summary', async (req, res) => {
-  const employeesList = await listEmployees();
-  const attendanceList = await listAttendance();
+  const filterEmpId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+  const filterMonth = req.query.month ? String(req.query.month).padStart(2, '0') : undefined;
+  const filterYear = req.query.year ? Number(req.query.year) : undefined;
 
-  const summary = employeesList.map((e: any) => {
-    const empAtt = attendanceList.filter((a: any) => a.employeeId === e.id);
+  const employeesList = filterEmpId
+    ? [await getEmployeeById(filterEmpId)].filter(Boolean)
+    : await listEmployees();
+  const attendanceList = await listAttendance(filterEmpId);
+
+  const summary = (employeesList as any[]).filter(Boolean).map((e: any) => {
+    let empAtt = (attendanceList as any[]).filter((a: any) => Number(a.employeeId) === Number(e.id));
+    if (filterMonth) {
+      empAtt = empAtt.filter((a: any) => String(a.date || '').slice(5, 7) === filterMonth);
+    }
+    if (filterYear) {
+      empAtt = empAtt.filter((a: any) => String(a.date || '').slice(0, 4) === String(filterYear));
+    }
     return {
       employeeId: e.id,
-      employeeName: `${e.firstName} ${e.lastName}`,
+      employeeName: `${e.firstName || ''} ${e.lastName || ''}`.trim(),
       totalDays: empAtt.length,
-      present: empAtt.filter((a: any) => a.status === 'present').length,
-      absent: empAtt.filter((a: any) => a.status === 'absent').length,
-      late: empAtt.filter((a: any) => a.status === 'late').length
+      present: empAtt.filter((a: any) => a.status === 'present' || (!a.isAbsent && a.checkInTime)).length,
+      absent: empAtt.filter((a: any) => a.status === 'absent' || a.isAbsent).length,
+      late: empAtt.filter((a: any) => a.status === 'late' || Number(a.lateMinutes || 0) > 0).length,
+      records: empAtt,
     };
   });
-  res.json(summary);
+  // Return single object if filtering by employee, array otherwise
+  if (filterEmpId) {
+    return res.json(summary[0] || { employeeId: filterEmpId, totalDays: 0, present: 0, absent: 0, late: 0, records: [] });
+  }
+  return res.json(summary);
 });
 
 apiRouter.get('/employees/:id', async (req, res) => {
@@ -663,6 +683,55 @@ apiRouter.post('/vacation-requests/:id/reject', async (req, res) => {
   res.json(updated);
 });
 
+// Bonuses Endpoints
+// Bonuses — admin manages; employees may read only their own records
+apiRouter.get('/bonuses', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  // Employees can only read their own bonuses
+  const empId = ctx.userType === 'employee'
+    ? ctx.employee.id
+    : req.query.employeeId ? Number(req.query.employeeId) : undefined;
+  const list = await listBonuses(empId);
+  return res.json(list);
+});
+
+apiRouter.post('/bonuses', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const record = await createBonus(req.body);
+  return res.status(201).json(record);
+});
+
+apiRouter.get('/bonuses/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const list = await listBonuses();
+  const bonus = (list as any[]).find((b: any) => Number(b.id) === Number(req.params.id));
+  if (!bonus) return res.status(404).json({ message: 'الزيادة غير موجودة' });
+  // Employees can only access their own bonus records
+  if (ctx.userType === 'employee' && Number(bonus.employeeId) !== ctx.employee.id) {
+    return res.status(403).json({ message: 'غير مصرح لك بالوصول إلى هذه البيانات' });
+  }
+  return res.json(bonus);
+});
+
+apiRouter.patch('/bonuses/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const updated = await updateBonus(Number(req.params.id), req.body);
+  if (!updated) return res.status(404).json({ message: 'الزيادة غير موجودة' });
+  return res.json(updated);
+});
+
+apiRouter.delete('/bonuses/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const deleted = await deleteBonus(Number(req.params.id));
+  if (!deleted) return res.status(404).json({ message: 'الزيادة غير موجودة' });
+  return res.json({ success: true });
+});
+
 // Violations Endpoints
 apiRouter.get('/violations', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -905,6 +974,27 @@ apiRouter.get('/salaries/:id/pdf', async (req, res) => {
   const data = await getSalaryPdfData(Number(req.params.id));
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return sendPayslipPdf(res, data, req.query.download === '1');
+});
+
+// Create notification — admin only
+apiRouter.post('/notifications', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  try {
+    const { type, message, recipientType, recipientEmployeeId, referenceId, referenceIdType } = req.body || {};
+    const record = await createNotificationRecord({
+      type,
+      message,
+      recipientType,
+      recipientEmployeeId: recipientEmployeeId ? Number(recipientEmployeeId) : null,
+      referenceId: referenceId ? Number(referenceId) : null,
+      referenceIdType: referenceIdType || null,
+    });
+    if (!record) return res.status(500).json({ message: 'تعذر إنشاء الإشعار' });
+    return res.status(201).json(record);
+  } catch (err: any) {
+    return res.status(500).json({ message: 'تعذر إنشاء الإشعار', error: String(err?.message || '') });
+  }
 });
 
 // Notifications
@@ -1809,14 +1899,14 @@ if (fs.existsSync(frontendDist)) {
 }
 
 // ─── Startup initialisation ───────────────────────────────────────────────
-// Seed offices with real coordinates. Admin identity fields remain untouched;
-// profile/login reads use the persisted values from PostgreSQL.
+// Seed offices with real coordinates and create a default admin if none exists.
 (async () => {
   try {
     await seedOfficialOffices();
   } catch (e) {
-    console.warn('[startup] init error:', e);
+    console.warn('[startup] seedOfficialOffices error:', e);
   }
+
 })();
 
 // Haversine distance in metres between two GPS coordinates

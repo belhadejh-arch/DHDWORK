@@ -1046,6 +1046,95 @@ export async function updateVacationRequestStatus(id: number, status: string) {
   return null;
 }
 
+// Bonuses
+export async function listBonuses(employeeId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const rows = await db
+        .select({ bonus: bonuses, employee: employees, office: offices })
+        .from(bonuses)
+        .leftJoin(employees, eq(employees.id, bonuses.employeeId))
+        .leftJoin(offices, eq(offices.id, employees.officeId))
+        .where(employeeId ? eq(bonuses.employeeId, Number(employeeId)) : undefined)
+        .orderBy(desc(bonuses.createdAt), desc(bonuses.id));
+
+      return rows.map((row: any) => ({
+        ...row.bonus,
+        id: Number(row.bonus.id),
+        employeeId: Number(row.bonus.employeeId),
+        amount: row.bonus.amount == null ? 0 : Number(row.bonus.amount),
+        employeeName: employeeName(row.employee) || row.bonus.employeeName || "—",
+        officeName: row.office?.name || null,
+      }));
+    }
+  } catch (err) {
+    throw err;
+  }
+  return [];
+}
+
+export async function createBonus(data: any) {
+  const employeeId = Number(data.employeeId);
+  const amount = Number(data.amount ?? 0);
+
+  const db = getDb();
+  const [record] = await db
+    .insert(bonuses)
+    .values({
+      employeeId,
+      amount: String(amount),
+      reason: data.reason || data.notes || "",
+      notes: data.notes || null,
+      date: data.date || new Date().toISOString().split("T")[0],
+      salaryId: data.salaryId ? Number(data.salaryId) : null,
+      status: "approved",
+      createdAt: new Date(),
+    })
+    .returning();
+  if (!record) throw new Error("تعذر إضافة الزيادة");
+  const employee = await getEmployeeById(employeeId);
+  return {
+    ...record,
+    id: Number(record.id),
+    employeeId,
+    amount,
+    employeeName: employee ? `${employee.firstName} ${employee.lastName}`.trim() : "—",
+  };
+}
+
+export async function deleteBonus(id: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const [deleted] = await db.delete(bonuses).where(eq(bonuses.id, Number(id))).returning();
+      return deleted || null;
+    }
+  } catch (err) {
+    throw err;
+  }
+  return null;
+}
+
+export async function updateBonus(id: number, data: any) {
+  try {
+    const db = getDb();
+    if (db) {
+      const update: any = {};
+      if (data.amount !== undefined) update.amount = String(Number(data.amount));
+      if (data.reason !== undefined) update.reason = data.reason;
+      if (data.notes !== undefined) update.notes = data.notes;
+      if (data.date !== undefined) update.date = data.date;
+      if (data.status !== undefined) update.status = data.status;
+      const [updated] = await db.update(bonuses).set(update).where(eq(bonuses.id, Number(id))).returning();
+      return updated || null;
+    }
+  } catch (err) {
+    throw err;
+  }
+  return null;
+}
+
 // Violations
 export async function listViolations(employeeId?: number) {
   try {
@@ -1508,6 +1597,33 @@ export async function getEmployeeSalaryBalance(employeeId: number) {
 }
 
 // Notifications
+export async function createNotificationRecord(data: {
+  type?: string;
+  message: string;
+  recipientType?: string;
+  recipientEmployeeId?: number | null;
+  referenceId?: number | null;
+  referenceIdType?: string | null;
+}) {
+  try {
+    const db = getDb();
+    const [record] = await db.insert(notifications).values({
+      type: data.type || 'info',
+      message: data.message || '',
+      recipientType: data.recipientType || 'admin',
+      recipientEmployeeId: data.recipientEmployeeId ?? null,
+      referenceId: data.referenceId ?? null,
+      referenceIdType: data.referenceIdType ?? null,
+      isRead: false,
+      createdAt: new Date(),
+    }).returning();
+    return record || null;
+  } catch (err) {
+    console.warn("createNotificationRecord failed:", err);
+    return null;
+  }
+}
+
 export async function markSingleNotificationRead(id: number, recipientType = "admin", recipientId?: number) {
   try {
     const db = getDb();
