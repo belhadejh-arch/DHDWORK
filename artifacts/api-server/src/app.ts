@@ -6,6 +6,29 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import PDFDocument from 'pdfkit';
 
+// ─── Short-lived PDF download tokens ─────────────────────────────────────────
+// Allows window.open(pdfUrl) to work without relying on cookies or auth headers.
+// Tokens are valid for 2 minutes and single-use.
+const _pdfTokens = new Map<string, { salaryId: number; expiresAt: number }>();
+
+function issuePdfToken(salaryId: number): string {
+  const token = crypto.randomBytes(16).toString('hex');
+  _pdfTokens.set(token, { salaryId, expiresAt: Date.now() + 120_000 });
+  // Prune expired entries
+  const now = Date.now();
+  for (const [t, v] of _pdfTokens) { if (v.expiresAt < now) _pdfTokens.delete(t); }
+  return token;
+}
+
+function consumePdfToken(token: string | undefined, salaryId: number): boolean {
+  if (!token) return false;
+  const entry = _pdfTokens.get(token);
+  if (!entry || entry.salaryId !== salaryId || entry.expiresAt < Date.now()) return false;
+  _pdfTokens.delete(token); // single-use
+  return true;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 import {
   getAdminByEmail,
   getAdminById,
@@ -944,7 +967,8 @@ apiRouter.get('/salaries/:id/payslip', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
   const salaryId = Number(req.params.id);
-  const data = toPayslipPayload(await getSalaryPdfData(salaryId), `/api/salaries/${salaryId}/pdf`);
+  const token = issuePdfToken(salaryId);
+  const data = toPayslipPayload(await getSalaryPdfData(salaryId), `/api/salaries/${salaryId}/pdf?t=${token}`);
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
 });
@@ -969,9 +993,14 @@ apiRouter.patch('/salaries/:id/postpone', postponeSalary);
 
 // PDF payslip — a real PDF stream that can be opened, downloaded, and printed
 apiRouter.get('/salaries/:id/pdf', async (req, res) => {
-  const ctx = await getAuthContext(req);
-  if (ctx?.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
-  const data = await getSalaryPdfData(Number(req.params.id));
+  const salaryId = Number(req.params.id);
+  // Accept a short-lived token so window.open() works without relying on cookies
+  const tokenOk = consumePdfToken(req.query.t as string | undefined, salaryId);
+  if (!tokenOk) {
+    const ctx = await getAuthContext(req);
+    if (ctx?.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  }
+  const data = await getSalaryPdfData(salaryId);
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return sendPayslipPdf(res, data, req.query.download === '1');
 });
@@ -1191,22 +1220,32 @@ async function getEmployeePayslip(req: express.Request, res: express.Response) {
     String(salary.month) === requestedValue,
   );
   if (!payslip) return res.status(404).json({ message: 'لم يتم العثور على كشف الراتب' });
+  const salaryId = Number(payslip.id);
+  const token = issuePdfToken(salaryId);
   const data = toPayslipPayload(
-    await getSalaryPdfData(Number(payslip.id)),
-    `/api/employee/salaries/${Number(payslip.id)}/pdf`,
+    await getSalaryPdfData(salaryId),
+    `/api/employee/salaries/${salaryId}/pdf?t=${token}`,
   );
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
 }
 
 async function getEmployeePayslipPdf(req: express.Request, res: express.Response) {
-  const ctx = await getAuthContext(req);
-  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  const data = await getSalaryPdfData(Number(req.params.id));
-  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
-  if (Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
-    return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
+  const salaryId = Number(req.params.id);
+  // Accept a short-lived token so window.open() works without relying on cookies
+  const tokenOk = consumePdfToken(req.query.t as string | undefined, salaryId);
+  if (!tokenOk) {
+    const ctx = await getAuthContext(req);
+    if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+    const data = await getSalaryPdfData(salaryId);
+    if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+    if (Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
+      return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
+    }
+    return sendPayslipPdf(res, data, req.query.download === '1');
   }
+  const data = await getSalaryPdfData(salaryId);
+  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return sendPayslipPdf(res, data, req.query.download === '1');
 }
 
