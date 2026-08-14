@@ -11,6 +11,7 @@ import {
   CalendarDays,
   Check,
   ClipboardCheck,
+  FileText,
   Hash,
   LogIn,
   LogOut,
@@ -536,8 +537,104 @@ function EmployeeHome() {
             </div>
           )}
         </section>
+
+        <SalarySection />
       </div>
     </main>
+  );
+}
+
+type SalaryRecord = {
+  id: number;
+  month?: string | null;
+  year?: number | null;
+  baseSalary?: string | number | null;
+  finalSalary?: string | number | null;
+  status?: string | null;
+};
+
+function SalarySection() {
+  const [salaries, setSalaries] = useState<SalaryRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [opening, setOpening] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const headers = employeeAuthHeaders();
+    fetch('/api/employee/salaries', { credentials: 'include', headers })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => { if (!cancelled) setSalaries(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setSalaries([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const openPdf = async (salary: SalaryRecord) => {
+    if (opening !== null) return;
+    setOpening(salary.id);
+    try {
+      const headers = employeeAuthHeaders();
+      const resp = await fetch(`/api/employee/salaries/${salary.id}/pdf`, { credentials: 'include', headers });
+      if (!resp.ok) throw new Error('تعذر تحميل الكشف');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (!win) window.location.assign(url);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      /* silently fail — the button resets */
+    } finally {
+      setOpening(null);
+    }
+  };
+
+  const monthLabel = (month?: string | null) => {
+    const map: Record<string, string> = { '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل', '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس', '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر' };
+    return map[String(month || '').padStart(2, '0')] || month || '—';
+  };
+
+  const statusBadge = (status?: string | null) => {
+    if (status === 'paid') return <span className="dhd-attendance-status is-complete">مدفوع</span>;
+    if (status === 'postponed') return <span className="dhd-attendance-status">مؤجل</span>;
+    return <span className="dhd-attendance-status is-open">معلق</span>;
+  };
+
+  return (
+    <section className="dhd-section-card" aria-labelledby="salary-title">
+      <div className="dhd-section-heading">
+        <div><p className="dhd-eyebrow">الرواتب والكشوفات</p><h2 id="salary-title">كشوف راتبي</h2></div>
+        <WalletCards size={25} />
+      </div>
+      {loading ? (
+        <p className="dhd-empty-state">جارٍ تحميل الرواتب...</p>
+      ) : salaries.length === 0 ? (
+        <p className="dhd-empty-state">لا توجد سجلات راتب بعد.</p>
+      ) : (
+        <div className="dhd-record-list">
+          {salaries.slice(0, 12).map((salary) => (
+            <article className="dhd-record-row" key={salary.id}>
+              <div>
+                <strong>{monthLabel(salary.month)} {salary.year || ''}</strong>
+                <span>{statusBadge(salary.status)}</span>
+              </div>
+              <div className="dhd-record-meta">
+                <strong>{Number(salary.finalSalary || salary.baseSalary || 0).toLocaleString('ar-DZ')} دج</strong>
+                <button
+                  type="button"
+                  className="dhd-action-button"
+                  style={{ padding: '6px 14px', fontSize: '12px', gap: '5px' }}
+                  disabled={opening === salary.id}
+                  onClick={() => void openPdf(salary)}
+                >
+                  {opening === salary.id ? <span className="dhd-spinner" /> : <FileText size={14} />}
+                  كشف PDF
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
