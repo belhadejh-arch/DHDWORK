@@ -5,15 +5,12 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import {
-  ArrowLeft,
   BadgeCheck,
   Bell,
   Building2,
   CalendarDays,
   Check,
   ClipboardCheck,
-  Download,
-  FileText,
   Hash,
   LogIn,
   LogOut,
@@ -81,17 +78,6 @@ type ViolationRecord = {
   violationDate?: string | null;
   date?: string | null;
   status?: string | null;
-};
-
-type SalaryRecord = {
-  id: number;
-  employeeId?: number;
-  month?: string | null;
-  year?: number | null;
-  baseSalary?: string | number | null;
-  finalSalary?: string | number | null;
-  status?: string | null;
-  paidAt?: string | null;
 };
 
 type NotificationRecord = {
@@ -435,147 +421,6 @@ function InfoCard({ icon, label, value, ltr }: { icon: ReactNode; label: string;
   );
 }
 
-function SalarySection({ employee }: { employee: Employee }) {
-  const [salaries, setSalaries] = useState<SalaryRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [openingPdf, setOpeningPdf] = useState<number | null>(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setIsLoading(true);
-      setError('');
-      try {
-        const headers = employeeAuthHeaders();
-        const response = await fetch('/api/employee/salaries', {
-          credentials: 'include',
-          headers,
-        });
-        if (!response.ok) throw new Error('تعذر تحميل سجلات الراتب');
-        const data = await response.json() as SalaryRecord[];
-        if (!cancelled) setSalaries(Array.isArray(data) ? data : []);
-      } catch (reason) {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : 'تعذر تحميل البيانات');
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [employee.id]);
-
-  const openPayslipPdf = async (salary: SalaryRecord, download = false) => {
-    if (openingPdf) return;
-    setOpeningPdf(salary.id);
-    try {
-      const token = window.localStorage.getItem(EMPLOYEE_TOKEN_KEY);
-      const url = `/api/employee/salaries/${salary.id}/pdf${download ? '?download=1' : ''}`;
-      // Fetch the PDF as a blob using Authorization header — never put tokens in URLs
-      const resp = await fetch(url, {
-        credentials: 'include',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      }).catch(() => null);
-      if (resp && resp.ok) {
-        const blob = await resp.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        if (download) {
-          const a = document.createElement('a');
-          a.href = objectUrl;
-          a.download = `راتب-${salary.month}-${salary.year}.pdf`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        } else {
-          const win = window.open(objectUrl, '_blank');
-          if (!win) window.location.assign(objectUrl);
-        }
-        // Revoke the blob URL after a short delay
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
-      } else {
-        console.error('Failed to fetch payslip PDF', resp?.status);
-      }
-    } finally {
-      setOpeningPdf(null);
-    }
-  };
-
-  const monthName = (month: string | null | undefined) => {
-    const months: Record<string, string> = {
-      '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل',
-      '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس',
-      '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر',
-    };
-    const key = String(month || '').padStart(2, '0');
-    return months[key] || month || '—';
-  };
-
-  const statusLabel = (status: string | null | undefined) => {
-    if (status === 'paid') return { text: 'مدفوع', cls: 'dhd-salary-status is-paid' };
-    if (status === 'postponed') return { text: 'مؤجل', cls: 'dhd-salary-status is-postponed' };
-    return { text: 'قيد الانتظار', cls: 'dhd-salary-status is-pending' };
-  };
-
-  return (
-    <section className="dhd-section-card" aria-labelledby="salary-title">
-      <div className="dhd-section-heading">
-        <div><p className="dhd-eyebrow">الرواتب والكشوفات</p><h2 id="salary-title">سجل راتبي</h2></div>
-        <WalletCards size={25} />
-      </div>
-      {isLoading ? (
-        <p className="dhd-empty-state">جارٍ تحميل سجلات الراتب...</p>
-      ) : error ? (
-        <p className="dhd-empty-state dhd-error-state">{error}</p>
-      ) : salaries.length === 0 ? (
-        <p className="dhd-empty-state">لا توجد سجلات راتب بعد.</p>
-      ) : (
-        <div className="dhd-salary-list">
-          {salaries.slice(0, 12).map((salary) => {
-            const { text, cls } = statusLabel(salary.status);
-            const isOpening = openingPdf === salary.id;
-            return (
-              <article className="dhd-salary-row" key={salary.id}>
-                <div className="dhd-salary-main">
-                  <div className="dhd-salary-period">
-                    <strong>{monthName(salary.month)} {salary.year || ''}</strong>
-                    <span className={cls}>{text}</span>
-                  </div>
-                  <div className="dhd-salary-amounts">
-                    <span>الراتب الأساسي: <strong>{Number(salary.baseSalary || 0).toLocaleString('ar-DZ')} دج</strong></span>
-                    <span>صافي الراتب: <strong className="dhd-net-salary">{Number(salary.finalSalary || salary.baseSalary || 0).toLocaleString('ar-DZ')} دج</strong></span>
-                  </div>
-                </div>
-                <div className="dhd-salary-actions">
-                  <button
-                    type="button"
-                    className="dhd-pdf-button"
-                    disabled={isOpening}
-                    onClick={() => void openPayslipPdf(salary, false)}
-                    title="عرض كشف الراتب"
-                  >
-                    {isOpening ? <span className="dhd-spinner" /> : <FileText size={15} />}
-                    كشف الراتب
-                  </button>
-                  <button
-                    type="button"
-                    className="dhd-pdf-button is-download"
-                    disabled={isOpening}
-                    onClick={() => void openPayslipPdf(salary, true)}
-                    title="تحميل PDF"
-                  >
-                    <Download size={15} />
-                    تحميل
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
 function EmployeeHome() {
   const { employee, isChecking, logout } = useEmployeeSession();
   if (!employee && isChecking) return <LoadingScreen />;
@@ -649,9 +494,6 @@ function EmployeeHome() {
           <InfoCard icon={<CalendarDays />} label="تاريخ الانضمام" value={joinedDate} />
           <InfoCard icon={<WalletCards />} label="المسمى الوظيفي" value={employee.position || employee.role || 'غير محدد'} />
         </section>
-
-        {/* Salary Section */}
-        <SalarySection employee={employee} />
 
         <section className="dhd-section-card" aria-labelledby="attendance-title">
           <div className="dhd-section-heading">
