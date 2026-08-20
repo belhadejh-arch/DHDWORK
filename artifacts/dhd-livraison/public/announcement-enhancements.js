@@ -114,7 +114,12 @@
             return (node.textContent || '').indexOf('الإشعارات') !== -1;
           });
           if (notificationLink && notificationLink.parentNode) {
-            notificationLink.parentNode.insertBefore(a, notificationLink.nextSibling);
+            var notificationItem = notificationLink.parentNode;
+            if (notificationItem.parentNode === nav) {
+              nav.insertBefore(a, notificationItem.nextSibling);
+            } else {
+              notificationItem.insertBefore(a, notificationLink.nextSibling);
+            }
           } else {
             nav.appendChild(a);
           }
