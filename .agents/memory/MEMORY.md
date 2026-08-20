@@ -1,2 +1,3 @@
 - [DHD identity data](dhd-identity-data.md) — PostgreSQL is authoritative for employees, offices, admins, and strict QR identity matching.
 - [DHD proxy workflow](dhd-proxy-workflow.md) — the API workflow must listen on the artifact proxy's configured port for frontend API calls to work.
+- [Announcement schema compatibility](announcement-schema-compatibility.md) — announcement tables may predate the current Drizzle model; preserve their existing required timing and recipient columns.

@@ -1098,12 +1098,32 @@ apiRouter.get('/announcements', async (req, res) => {
 apiRouter.post('/announcements', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
-  const adminId = ctx.admin?.id;
-  const { title, body, severity, durationSeconds, audience, employeeIds, allowDismiss } = req.body || {};
-  if (!String(title || '').trim() || !String(body || '').trim()) return res.status(400).json({ message: 'العنوان ونص الإعلان مطلوبان' });
-  if (audience === 'selected' && !Array.isArray(employeeIds)) return res.status(400).json({ message: 'اختر موظفًا واحدًا على الأقل' });
-  const created = await createAnnouncement({ title, body, severity, durationSeconds, audience, employeeIds, allowDismiss, createdByAdminId: adminId });
-  return res.status(201).json(created);
+  try {
+    const adminId = ctx.admin?.id;
+    const { title, body, severity, durationSeconds, audience, employeeIds, allowDismiss } = req.body || {};
+    if (!String(title || '').trim() || !String(body || '').trim()) {
+      return res.status(400).json({ message: 'العنوان ونص الإعلان مطلوبان' });
+    }
+    if (audience === 'selected' && (!Array.isArray(employeeIds) || employeeIds.length === 0)) {
+      return res.status(400).json({ message: 'اختر موظفًا واحدًا على الأقل' });
+    }
+    const created = await createAnnouncement({
+      title,
+      body,
+      severity,
+      durationSeconds,
+      audience,
+      employeeIds,
+      allowDismiss,
+      createdByAdminId: adminId,
+    });
+    return res.status(201).json(created);
+  } catch (error: any) {
+    console.error('[announcements] publish failed:', error);
+    return res.status(500).json({
+      message: 'تعذر حفظ الإعلان في قاعدة البيانات. لم يتم نشر الإعلان.',
+    });
+  }
 });
 
 apiRouter.patch('/announcements/:id', async (req, res) => {

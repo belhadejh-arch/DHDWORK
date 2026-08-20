@@ -175,23 +175,27 @@ export const announcements = pgTable("announcements", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   body: text("body").notNull(),
-  severity: text("severity").notNull().default("normal"),
-  durationSeconds: integer("duration_seconds").notNull().default(0),
-  audience: text("audience").notNull().default("all"),
+  level: text("level").notNull().default("normal"),
+  durationSeconds: integer("duration_seconds").notNull().default(86400),
   allowDismiss: boolean("allow_dismiss").notNull().default(true),
   isActive: boolean("is_active").notNull().default(true),
+  startsAt: timestamp("starts_at").notNull().defaultNow(),
+  endsAt: timestamp("ends_at").notNull().defaultNow(),
   createdByAdminId: integer("created_by_admin_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  stoppedAt: timestamp("stopped_at"),
+  targetAll: boolean("target_all").notNull().default(false),
 });
 
 export const announcementRecipients = pgTable("announcement_recipients", {
+  id: serial("id").primaryKey(),
   announcementId: integer("announcement_id").notNull(),
   employeeId: integer("employee_id").notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.announcementId, table.employeeId] }),
-}));
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  dismissedAt: timestamp("dismissed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 
 export const announcementReads = pgTable("announcement_reads", {
   announcementId: integer("announcement_id").notNull(),

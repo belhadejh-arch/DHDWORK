@@ -1661,6 +1661,33 @@ export async function deleteNotification(id: number, recipientType = "admin", re
 }
 
 // Admin announcements are persisted separately from the legacy notification feed.
+const ANNOUNCEMENT_NEVER_EXPIRES = new Date("2999-12-31T23:59:59.999Z");
+
+function announcementDurationSeconds(value: unknown): number {
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+}
+
+function announcementEndsAt(startsAt: Date, durationSeconds: number): Date {
+  return durationSeconds > 0
+    ? new Date(startsAt.getTime() + durationSeconds * 1000)
+    : ANNOUNCEMENT_NEVER_EXPIRES;
+}
+
+function formatAnnouncement(row: any, recipientEmployeeIds: number[] = [], readEmployeeIds: number[] = []) {
+  const startsAt = row.startsAt ? new Date(row.startsAt) : new Date(row.createdAt);
+  const durationSeconds = announcementDurationSeconds(row.durationSeconds);
+  return {
+    ...row,
+    severity: row.level || "normal",
+    audience: row.targetAll ? "all" : "selected",
+    durationSeconds,
+    recipientEmployeeIds,
+    readEmployeeIds,
+    readCount: readEmployeeIds.length,
+  };
+}
+
 export async function listAnnouncements() {
   const db = getDb();
   const rows = await db.select().from(announcements).orderBy(desc(announcements.createdAt));
@@ -1669,12 +1696,11 @@ export async function listAnnouncements() {
   return rows.map((row: any) => {
     const recipients = recipientRows.filter((r: any) => Number(r.announcementId) === Number(row.id));
     const reads = readRows.filter((r: any) => Number(r.announcementId) === Number(row.id));
-    return {
-      ...row,
-      recipientEmployeeIds: recipients.map((r: any) => Number(r.employeeId)),
-      readEmployeeIds: reads.map((r: any) => Number(r.employeeId)),
-      readCount: reads.length,
-    };
+    return formatAnnouncement(
+      row,
+      recipients.map((r: any) => Number(r.employeeId)),
+      reads.map((r: any) => Number(r.employeeId)),
+    );
   });
 }
 
@@ -1686,52 +1712,87 @@ export async function listEmployeeAnnouncements(employeeId: number) {
   const recipientIds = new Set(recipients.map((r: any) => Number(r.announcementId)));
   const readIds = new Set(reads.map((r: any) => Number(r.announcementId)));
   const now = Date.now();
-  return rows.filter((row: any) => (row.audience === "all" || recipientIds.has(Number(row.id))) &&
-    (!row.durationSeconds || now - new Date(row.createdAt).getTime() < Number(row.durationSeconds) * 1000))
-    .map((row: any) => ({ ...row, isRead: readIds.has(Number(row.id)) }));
+  return rows.filter((row: any) => (row.targetAll || recipientIds.has(Number(row.id))) &&
+    (!row.endsAt || new Date(row.endsAt).getTime() > now))
+    .map((row: any) => ({
+      ...formatAnnouncement(row, [], Array.from(readIds.has(Number(row.id)) ? [Number(employeeId)] : [])),
+      isRead: readIds.has(Number(row.id)),
+    }));
 }
 
 export async function createAnnouncement(data: any) {
   const db = getDb();
+  const startsAt = new Date();
+  const durationSeconds = announcementDurationSeconds(data.durationSeconds);
+  const employeeIds: number[] = Array.from(new Set<number>(
+    (Array.isArray(data.employeeIds) ? data.employeeIds : [])
+      .map(Number)
+      .filter((id: number) => Number.isInteger(id) && id > 0),
+  ));
   return db.transaction(async (tx: any) => {
     const [created] = await tx.insert(announcements).values({
       title: String(data.title).trim(),
       body: String(data.body).trim(),
-      severity: data.severity || "normal",
-      durationSeconds: Number(data.durationSeconds || 0),
-      audience: data.audience === "selected" ? "selected" : "all",
+      level: data.severity || "normal",
+      durationSeconds,
       allowDismiss: data.allowDismiss !== false,
       isActive: data.isActive !== false,
+      startsAt,
+      endsAt: announcementEndsAt(startsAt, durationSeconds),
       createdByAdminId: data.createdByAdminId ? Number(data.createdByAdminId) : null,
-      createdAt: new Date(),
+      createdAt: startsAt,
       updatedAt: new Date(),
+      targetAll: data.audience !== "selected",
     }).returning();
-    const ids = data.employeeIds?.map(Number).filter((id: number) => Number.isInteger(id) && id > 0) || [];
-    if (created && ids.length) await tx.insert(announcementRecipients).values(ids.map((employeeId: number) => ({ announcementId: created.id, employeeId }))).onConflictDoNothing();
-    return created;
+    if (created && employeeIds.length) {
+      await tx.insert(announcementRecipients).values(employeeIds.map((employeeId: number) => ({
+        announcementId: created.id,
+        employeeId,
+        isRead: false,
+        createdAt: startsAt,
+      })));
+    }
+    return formatAnnouncement(created, employeeIds);
   });
 }
 
 export async function updateAnnouncement(id: number, data: any) {
   const db = getDb();
+  const durationSeconds = data.durationSeconds !== undefined
+    ? announcementDurationSeconds(data.durationSeconds)
+    : undefined;
   return db.transaction(async (tx: any) => {
     const [updated] = await tx.update(announcements).set({
       ...(data.title !== undefined ? { title: String(data.title).trim() } : {}),
       ...(data.body !== undefined ? { body: String(data.body).trim() } : {}),
-      ...(data.severity !== undefined ? { severity: data.severity } : {}),
-      ...(data.durationSeconds !== undefined ? { durationSeconds: Number(data.durationSeconds || 0) } : {}),
-      ...(data.audience !== undefined ? { audience: data.audience === "selected" ? "selected" : "all" } : {}),
+      ...(data.severity !== undefined ? { level: data.severity } : {}),
+      ...(durationSeconds !== undefined ? {
+        durationSeconds,
+        endsAt: announcementEndsAt(new Date(), durationSeconds),
+      } : {}),
+      ...(data.audience !== undefined ? { targetAll: data.audience !== "selected" } : {}),
       ...(data.allowDismiss !== undefined ? { allowDismiss: Boolean(data.allowDismiss) } : {}),
-      ...(data.isActive !== undefined ? { isActive: Boolean(data.isActive), stoppedAt: data.isActive ? null : new Date() } : {}),
+      ...(data.isActive !== undefined ? { isActive: Boolean(data.isActive) } : {}),
       updatedAt: new Date(),
     }).where(eq(announcements.id, Number(id))).returning();
     if (!updated) return null;
     if (data.employeeIds) {
       await tx.delete(announcementRecipients).where(eq(announcementRecipients.announcementId, Number(id)));
-      const ids = data.employeeIds.map(Number).filter((employeeId: number) => Number.isInteger(employeeId) && employeeId > 0);
-      if (ids.length) await tx.insert(announcementRecipients).values(ids.map((employeeId: number) => ({ announcementId: Number(id), employeeId }))).onConflictDoNothing();
+      const ids: number[] = Array.from(new Set<number>(
+        data.employeeIds.map(Number).filter((employeeId: number) => Number.isInteger(employeeId) && employeeId > 0),
+      ));
+      if (ids.length) {
+        await tx.insert(announcementRecipients).values(ids.map((employeeId: number) => ({
+          announcementId: Number(id),
+          employeeId,
+          isRead: false,
+          createdAt: new Date(),
+        })));
+      }
     }
-    return updated;
+    const recipients = await tx.select().from(announcementRecipients)
+      .where(eq(announcementRecipients.announcementId, Number(id)));
+    return formatAnnouncement(updated, recipients.map((row: any) => Number(row.employeeId)));
   });
 }
 
