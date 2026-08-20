@@ -125,7 +125,12 @@
     }
 
     event.preventDefault();
-    const direction = gesture.rtl ? 1 : -1;
+     // Opening starts at the logical edge and moves toward the center:
+     // right-to-left for Arabic, left-to-right for LTR. Closing is the
+     // opposite direction, so calculate the signed distance per state.
+     const direction = gesture.open
+       ? (gesture.rtl ? 1 : -1)
+       : (gesture.rtl ? -1 : 1);
     const distance = Math.max(0, direction * dx);
     gesture.distance = distance;
 
