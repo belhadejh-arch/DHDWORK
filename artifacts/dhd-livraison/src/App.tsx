@@ -366,8 +366,13 @@ function EmployeeAnnouncementBanner() {
   }, []);
   useEffect(() => {
     void load();
-    const interval = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(interval);
+    const interval = window.setInterval(() => void load(), 2_000);
+    const refreshOnFocus = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', refreshOnFocus);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
+    };
   }, [load]);
   const visible = items.filter((item) => !dismissed.includes(item.id));
   if (!visible.length) return null;
@@ -403,6 +408,7 @@ function AdminAnnouncements() {
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [form, setForm] = useState({ title: '', body: '', severity: 'normal', durationSeconds: 0, audience: 'all', employeeIds: [] as number[], allowDismiss: true });
   const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const adminHeaders = (): Record<string, string> => {
     const token = window.localStorage.getItem('dhd_admin_token');
     return token ? { Authorization: `Bearer ${token}` } : { };
@@ -421,13 +427,24 @@ function AdminAnnouncements() {
     setForm({ title: '', body: '', severity: 'normal', durationSeconds: 0, audience: 'all', employeeIds: [], allowDismiss: true });
   };
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true);
-    const response = await fetch(editing ? `/api/announcements/${editing.id}` : '/api/announcements', {
-      method: editing ? 'PATCH' : 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...adminHeaders() }, body: JSON.stringify(form),
-    });
-    if (response.ok) { reset(); await load(); }
-    setBusy(false);
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setSubmitError('');
+    try {
+      const response = await fetch(editing ? `/api/announcements/${editing.id}` : '/api/announcements', {
+        method: editing ? 'PATCH' : 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...adminHeaders() }, body: JSON.stringify(form),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'تعذر نشر الإعلان');
+      reset();
+      await load();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'تعذر نشر الإعلان');
+    } finally {
+      setBusy(false);
+    }
   };
   const edit = (item: Announcement) => {
     setEditing(item);
@@ -443,7 +460,8 @@ function AdminAnnouncements() {
       <header className="dhd-admin-header"><div className="dhd-brand"><div className="dhd-brand-mark"><Megaphone size={22} /></div><div><strong>DHD Livraison</strong><span>لوحة الإدارة</span></div></div><a href="/portal" className="dhd-back-link">بوابة الموظف</a></header>
       <div className="dhd-admin-content">
         <div className="dhd-admin-title"><div><p className="dhd-eyebrow">التواصل الداخلي</p><h1>الإعلانات</h1><p>أنشئ رسائل واضحة تصل إلى الموظفين المستهدفين وتابع قراءتها.</p></div><Users size={36} /></div>
-        <form className="dhd-announcement-form" onSubmit={submit}>
+         <form className="dhd-announcement-form" onSubmit={submit}>
+           {submitError && <p className="dhd-error-state" role="alert">{submitError}</p>}
           <div className="dhd-form-grid"><label>العنوان<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="مثال: تحديث مهم في مواعيد الحضور" /></label><label>نوع الإعلان<select value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}><option value="normal">عادي</option><option value="important">مهم</option><option value="urgent">عاجل</option></select></label></div>
           <label>نص الإعلان<textarea required rows={4} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} placeholder="اكتب تفاصيل الإعلان هنا..." /></label>
           <div className="dhd-form-grid"><label>مدة الظهور<select value={form.durationSeconds} onChange={(e) => setForm({ ...form, durationSeconds: Number(e.target.value) })}><option value={0}>بدون انتهاء</option><option value={86400}>24 ساعة</option><option value={259200}>3 أيام</option><option value={604800}>7 أيام</option><option value={2592000}>30 يومًا</option></select></label><label>المستهدفون<select value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })}><option value="all">كل الموظفين</option><option value="selected">موظفون محددون</option></select></label></div>

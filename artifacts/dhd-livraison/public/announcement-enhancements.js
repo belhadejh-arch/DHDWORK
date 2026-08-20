@@ -1,6 +1,19 @@
 (function () {
   'use strict';
-  var json = function (url, options) { return fetch(url, Object.assign({ credentials: 'include' }, options || {})).then(function (r) { return r.ok ? r.json() : Promise.reject(r); }); };
+  var json = function (url, options) {
+    return fetch(url, Object.assign({ credentials: 'include' }, options || {})).then(function (r) {
+      return r.text().then(function (text) {
+        var payload = {};
+        try { payload = text ? JSON.parse(text) : {}; } catch (_) { payload = {}; }
+        if (!r.ok) {
+          var error = new Error(payload.message || ('فشل الطلب (' + r.status + ')'));
+          error.status = r.status;
+          throw error;
+        }
+        return payload;
+      });
+    });
+  };
   var auth = function (key) { var t = localStorage.getItem(key); return t ? { Authorization: 'Bearer ' + t } : {}; };
   var esc = function (value) { var d = document.createElement('div'); d.textContent = value == null ? '' : String(value); return d.innerHTML; };
   var date = function (value) { try { return value ? new Intl.DateTimeFormat('ar-DZ', { dateStyle: 'medium' }).format(new Date(value)) : 'الآن'; } catch (_) { return 'الآن'; } };
@@ -44,11 +57,39 @@
     addStyle();
     var root = document.getElementById('root'); root.innerHTML = '<main class="dhd-admin-ann-page"><div><p style="color:#dd620d">التواصل الداخلي</p><h1>الإعلانات</h1><p>إعلانات متحركة موجهة للموظفين مع متابعة المشاهدة.</p></div><form class="dhd-admin-ann-form"><div class="dhd-admin-ann-grid"><label>العنوان<input name="title" required></label><label>النوع<select name="severity"><option value="normal">عادي</option><option value="important">مهم</option><option value="urgent">عاجل</option></select></label></div><label>نص الإعلان<textarea name="body" rows="4" required></textarea></label><div class="dhd-admin-ann-grid"><label>مدة الظهور<select name="durationSeconds"><option value="0">بدون انتهاء</option><option value="86400">24 ساعة</option><option value="259200">3 أيام</option><option value="604800">7 أيام</option></select></label><label>المستهدفون<select name="audience"><option value="all">كل الموظفين</option><option value="selected">موظفون محددون</option></select></label></div><div class="dhd-ann-employee-picker" style="display:none"></div><label style="display:flex;align-items:center;gap:7px"><input type="checkbox" name="allowDismiss" checked> السماح بالإغلاق ×</label><div class="dhd-admin-ann-actions"><button>نشر الإعلان</button></div></form><section class="dhd-admin-ann-list"><h2>الإعلانات المنشورة</h2><div class="dhd-admin-ann-items">جارٍ التحميل...</div></section></main>';
     var form = root.querySelector('form'), list = root.querySelector('.dhd-admin-ann-items');
+    var submitButton = form.querySelector('button[type="submit"]') || form.querySelector('button');
+    var status = document.createElement('p');
+    status.className = 'dhd-ann-form-status';
+    status.setAttribute('role', 'status');
+    form.insertBefore(status, form.firstChild);
     var picker = root.querySelector('.dhd-ann-employee-picker'), audience = form.audience;
     json('/api/employees', { headers: auth('dhd_admin_token') }).then(function (employees) { picker.innerHTML = (employees || []).map(function (e) { return '<label style="display:inline-flex;gap:5px;margin:5px;font-size:11px"><input type="checkbox" value="' + e.id + '"> ' + esc((e.firstName || '') + ' ' + (e.lastName || '')) + '</label>'; }).join(''); }).catch(function () {});
     audience.onchange = function () { picker.style.display = audience.value === 'selected' ? 'block' : 'none'; };
     function load() { json('/api/announcements', { headers: auth('dhd_admin_token') }).then(function (items) { list.innerHTML = items.length ? items.map(function (x) { return '<article class="dhd-admin-ann-row"><div><small>' + esc(x.severity) + ' · ' + (x.isActive ? 'نشط' : 'متوقف') + '</small><h3>' + esc(x.title) + '</h3><p>' + esc(x.body) + '</p><small>👁 ' + (x.readCount || 0) + ' شاهدوا · ' + (x.audience === 'all' ? 'كل الموظفين' : 'موظفون محددون') + '</small></div><div class="dhd-admin-ann-tools"><button data-stop="' + x.id + '">' + (x.isActive ? 'إيقاف' : 'تفعيل') + '</button><button data-delete="' + x.id + '">حذف</button></div></article>'; }).join('') : '<p>لا توجد إعلانات بعد.</p>'; list.querySelectorAll('[data-stop]').forEach(function (b) { b.onclick = function () { json('/api/announcements/' + b.dataset.stop, { method: 'PATCH', headers: Object.assign({ 'Content-Type': 'application/json' }, auth('dhd_admin_token')), body: JSON.stringify({ isActive: b.textContent === 'تفعيل' }) }).then(load); }; }); list.querySelectorAll('[data-delete]').forEach(function (b) { b.onclick = function () { if (confirm('حذف هذا الإعلان؟')) json('/api/announcements/' + b.dataset.delete, { method: 'DELETE', headers: auth('dhd_admin_token') }).then(load); }; }); }).catch(function () { list.textContent = 'تعذر تحميل الإعلانات. تأكد من تسجيل الدخول كأدمن.'; }); }
-    form.onsubmit = function (e) { e.preventDefault(); var data = Object.fromEntries(new FormData(form)); data.allowDismiss = form.allowDismiss.checked; data.durationSeconds = Number(data.durationSeconds || 0); data.employeeIds = Array.from(picker.querySelectorAll('input:checked')).map(function (x) { return Number(x.value); }); json('/api/announcements', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, auth('dhd_admin_token')), body: JSON.stringify(data) }).then(function () { form.reset(); picker.style.display = 'none'; load(); }); };
+    form.onsubmit = function (e) {
+      e.preventDefault();
+      if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'جارٍ النشر...'; }
+      status.textContent = '';
+      var data = Object.fromEntries(new FormData(form));
+      data.allowDismiss = form.allowDismiss.checked;
+      data.durationSeconds = Number(data.durationSeconds || 0);
+      data.employeeIds = Array.from(picker.querySelectorAll('input:checked')).map(function (x) { return Number(x.value); });
+      json('/api/announcements', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, auth('dhd_admin_token')), body: JSON.stringify(data) })
+        .then(function () {
+          form.reset();
+          picker.style.display = 'none';
+          status.style.color = '#16804b';
+          status.textContent = 'تم نشر الإعلان بنجاح وسيظهر للموظفين خلال لحظات.';
+          load();
+        })
+        .catch(function (error) {
+          status.style.color = '#b42318';
+          status.textContent = error.message || 'تعذر نشر الإعلان. تحقق من تسجيل الدخول والبيانات.';
+        })
+        .finally(function () {
+          if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'نشر الإعلان'; }
+        });
+    };
     load();
   }
 
@@ -69,7 +110,14 @@
           a.dataset.dhdAnnouncementsLink = 'true';
           a.textContent = '📣 الإعلانات';
           a.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 16px;color:inherit;text-decoration:none;cursor:pointer';
-          nav.appendChild(a);
+          var notificationLink = Array.from(nav.querySelectorAll('a,button,[role="link"]')).find(function (node) {
+            return (node.textContent || '').indexOf('الإشعارات') !== -1;
+          });
+          if (notificationLink && notificationLink.parentNode) {
+            notificationLink.parentNode.insertBefore(a, notificationLink.nextSibling);
+          } else {
+            nav.appendChild(a);
+          }
         }
       };
       addAdminLink();
