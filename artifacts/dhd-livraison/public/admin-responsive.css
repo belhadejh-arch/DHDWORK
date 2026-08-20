@@ -953,3 +953,284 @@ body {
     width: calc(100vw - 1rem);
   }
 }
+
+/* Final mobile boundary: keep the entire admin shell inside the viewport.
+   This is intentionally last so it wins over fixed desktop utility widths. */
+html,
+body,
+#root,
+#root > div,
+#root > div.flex.h-\[100dvh\],
+#root > div.flex.h-\[100dvh\] > main,
+#root > div.flex.h-\[100dvh\] > main > header,
+#root > div.flex.h-\[100dvh\] > main > div {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden !important;
+}
+
+#root > div.flex.h-\[100dvh\] {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+#root > div.flex.h-\[100dvh\] > main {
+  flex: 1 1 auto;
+  overflow-x: hidden;
+}
+
+#root > div.flex.h-\[100dvh\] > main > div.flex-1.overflow-y-auto {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#root > div.flex.h-\[100dvh\] main img,
+#root > div.flex.h-\[100dvh\] main svg,
+#root > div.flex.h-\[100dvh\] main canvas,
+#root > div.flex.h-\[100dvh\] main video,
+#root > div.flex.h-\[100dvh\] main iframe,
+#root > div.flex.h-\[100dvh\] main input,
+#root > div.flex.h-\[100dvh\] main textarea,
+#root > div.flex.h-\[100dvh\] main select,
+#root > div.flex.h-\[100dvh\] main button,
+#root > div.flex.h-\[100dvh\] main a {
+  max-width: 100%;
+}
+
+#root > div.flex.h-\[100dvh\] main img,
+#root > div.flex.h-\[100dvh\] main canvas,
+#root > div.flex.h-\[100dvh\] main video,
+#root > div.flex.h-\[100dvh\] main iframe {
+  height: auto;
+}
+
+#root > div.flex.h-\[100dvh\] main *,
+#root > div.flex.h-\[100dvh\] .fixed.top-0.end-0.z-50 * {
+  min-width: 0;
+  max-width: 100%;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+/* Do not let a content row make the page wider than the phone. */
+#root > div.flex.h-\[100dvh\] main .flex,
+#root > div.flex.h-\[100dvh\] main .grid {
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  #root > div.flex.h-\[100dvh\] > main > header {
+    width: 100%;
+    padding-inline: max(0.75rem, env(safe-area-inset-left)) max(0.75rem, env(safe-area-inset-right));
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > header > div {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > div.flex-1.overflow-y-auto {
+    width: 100%;
+    padding-inline: max(0.75rem, env(safe-area-inset-left)) max(0.75rem, env(safe-area-inset-right));
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex.items-center.justify-between,
+  #root > div.flex.h-\[100dvh\] main .flex.items-start.justify-between,
+  #root > div.flex.h-\[100dvh\] main .flex.justify-between {
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .grid[class*='grid-cols-'],
+  #root > div.flex.h-\[100dvh\] main .grid[class*='sm\\:grid-cols-'],
+  #root > div.flex.h-\[100dvh\] main .grid[class*='md\\:grid-cols-'] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex[class*='sm\\:flex-row'],
+  #root > div.flex.h-\[100dvh\] main .flex[class*='md\\:flex-row'] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex[class*='sm\\:flex-row'] > *,
+  #root > div.flex.h-\[100dvh\] main .flex[class*='md\\:flex-row'] > * {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  #root > div.flex.h-\[100dvh\] main [class*='w-[180px]'],
+  #root > div.flex.h-\[100dvh\] main [class*='w-[200px]'],
+  #root > div.flex.h-\[100dvh\] main [class*='w-[240px]'],
+  #root > div.flex.h-\[100dvh\] main [class*='w-[280px]'],
+  #root > div.flex.h-\[100dvh\] main [class*='w-[320px]'],
+  #root > div.flex.h-\[100dvh\] main [class*='min-w-'] {
+    width: 100%;
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  #root > div.flex.h-\[100dvh\] main [role='tablist'] {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: wrap;
+    overflow-x: hidden;
+  }
+
+  #root > div.flex.h-\[100dvh\] main [role='tablist'] > *,
+  #root > div.flex.h-\[100dvh\] main [role='tab'] {
+    min-width: 0 !important;
+    flex: 1 1 8rem;
+    max-width: 100%;
+  }
+
+  /* Tables become labelled cards. Any genuinely wide table can still scroll
+     only inside its own wrapper, never across the page. */
+  #root > div.flex.h-\[100dvh\] main div:has(> table),
+  #root > div.flex.h-\[100dvh\] main .overflow-x-auto {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex.overflow-x-auto {
+    overflow-x: hidden;
+    flex-wrap: wrap;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] {
+    width: 100%;
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] tr,
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td,
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] th {
+    min-width: 0 !important;
+    max-width: 100%;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td {
+    grid-template-columns: minmax(5.5rem, 35%) minmax(0, 1fr);
+  }
+
+  #root > div.flex.h-\[100dvh\] main [role='dialog'] {
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    margin-inline: auto;
+  }
+
+  /* The admin announcement screen is mounted outside the shell. */
+  .dhd-admin-page,
+  .dhd-admin-header,
+  .dhd-admin-content,
+  .dhd-admin-title,
+  .dhd-announcement-form,
+  .dhd-admin-list,
+  .dhd-admin-row,
+  .dhd-admin-row-main,
+  .dhd-admin-row-side {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .dhd-admin-header,
+  .dhd-admin-title,
+  .dhd-admin-row {
+    flex-wrap: wrap;
+    gap: 0.85rem;
+  }
+
+  .dhd-admin-content {
+    padding-inline: 0.75rem;
+  }
+
+  .dhd-admin-title > *,
+  .dhd-admin-row-main,
+  .dhd-admin-row-side {
+    flex: 1 1 100%;
+  }
+
+  .dhd-admin-row-side {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .dhd-admin-row-side > div {
+    flex-wrap: wrap;
+  }
+
+  .dhd-form-grid,
+  .dhd-employee-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dhd-announcement-form input:not([type='checkbox']),
+  .dhd-announcement-form textarea,
+  .dhd-announcement-form select,
+  .dhd-admin-form-actions,
+  .dhd-admin-form-actions button {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .dhd-admin-form-actions {
+    flex-wrap: wrap;
+  }
+
+  .fixed.top-0.end-0.z-50 {
+    width: min(86vw, 22rem) !important;
+    max-width: calc(100vw - 0.5rem) !important;
+    height: 100dvh;
+  }
+
+  .fixed.top-0.end-0.z-50 > div.w-\[272px\] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+@media (max-width: 430px) {
+  #root > div.flex.h-\[100dvh\] > main > header,
+  #root > div.flex.h-\[100dvh\] > main > div.flex-1.overflow-y-auto {
+    padding-inline: 0.6rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .p-5,
+  #root > div.flex.h-\[100dvh\] main .p-6,
+  #root > div.flex.h-\[100dvh\] main .p-4.sm\:p-6 {
+    padding: 0.75rem;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table[data-responsive-table] td {
+    grid-template-columns: minmax(4.75rem, 32%) minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .dhd-admin-title {
+    padding: 1rem;
+  }
+
+  .dhd-admin-title h1 {
+    font-size: 1.45rem;
+  }
+}
