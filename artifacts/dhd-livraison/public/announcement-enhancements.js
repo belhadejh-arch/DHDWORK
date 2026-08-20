@@ -108,7 +108,7 @@
           var a = document.createElement('a');
           a.href = '/announcements';
           a.dataset.dhdAnnouncementsLink = 'true';
-          a.textContent = '📣 الإعلانات';
+          a.innerHTML = '<span aria-hidden="true" style="display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;flex:0 0 18px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11h4l5-4v10l-5-4H3z"></path><path d="M16 9.5a4 4 0 0 1 0 5"></path><path d="M18.5 7a7.5 7.5 0 0 1 0 10"></path></svg></span><span>الإعلانات</span>';
           a.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 16px;color:inherit;text-decoration:none;cursor:pointer';
           var notificationLink = Array.from(nav.querySelectorAll('a,button,[role="link"]')).find(function (node) {
             return (node.textContent || '').indexOf('الإشعارات') !== -1;
