@@ -1,4 +1,4 @@
-import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins } from "../../../lib/db/src/index.js";
+import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins, announcements, announcementRecipients, announcementReads } from "../../../lib/db/src/index.js";
 import { eq, and, asc, desc, sql, like, or, isNull } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
@@ -1658,6 +1658,97 @@ export async function deleteNotification(id: number, recipientType = "admin", re
     console.warn("deleteNotification failed:", err);
     return null;
   }
+}
+
+// Admin announcements are persisted separately from the legacy notification feed.
+export async function listAnnouncements() {
+  const db = getDb();
+  const rows = await db.select().from(announcements).orderBy(desc(announcements.createdAt));
+  const recipientRows = await db.select().from(announcementRecipients);
+  const readRows = await db.select().from(announcementReads);
+  return rows.map((row: any) => {
+    const recipients = recipientRows.filter((r: any) => Number(r.announcementId) === Number(row.id));
+    const reads = readRows.filter((r: any) => Number(r.announcementId) === Number(row.id));
+    return {
+      ...row,
+      recipientEmployeeIds: recipients.map((r: any) => Number(r.employeeId)),
+      readEmployeeIds: reads.map((r: any) => Number(r.employeeId)),
+      readCount: reads.length,
+    };
+  });
+}
+
+export async function listEmployeeAnnouncements(employeeId: number) {
+  const db = getDb();
+  const rows = await db.select().from(announcements).where(eq(announcements.isActive, true)).orderBy(desc(announcements.createdAt));
+  const recipients = await db.select().from(announcementRecipients).where(eq(announcementRecipients.employeeId, Number(employeeId)));
+  const reads = await db.select().from(announcementReads).where(eq(announcementReads.employeeId, Number(employeeId)));
+  const recipientIds = new Set(recipients.map((r: any) => Number(r.announcementId)));
+  const readIds = new Set(reads.map((r: any) => Number(r.announcementId)));
+  const now = Date.now();
+  return rows.filter((row: any) => (row.audience === "all" || recipientIds.has(Number(row.id))) &&
+    (!row.durationSeconds || now - new Date(row.createdAt).getTime() < Number(row.durationSeconds) * 1000))
+    .map((row: any) => ({ ...row, isRead: readIds.has(Number(row.id)) }));
+}
+
+export async function createAnnouncement(data: any) {
+  const db = getDb();
+  return db.transaction(async (tx: any) => {
+    const [created] = await tx.insert(announcements).values({
+      title: String(data.title).trim(),
+      body: String(data.body).trim(),
+      severity: data.severity || "normal",
+      durationSeconds: Number(data.durationSeconds || 0),
+      audience: data.audience === "selected" ? "selected" : "all",
+      allowDismiss: data.allowDismiss !== false,
+      isActive: data.isActive !== false,
+      createdByAdminId: data.createdByAdminId ? Number(data.createdByAdminId) : null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }).returning();
+    const ids = data.employeeIds?.map(Number).filter((id: number) => Number.isInteger(id) && id > 0) || [];
+    if (created && ids.length) await tx.insert(announcementRecipients).values(ids.map((employeeId: number) => ({ announcementId: created.id, employeeId }))).onConflictDoNothing();
+    return created;
+  });
+}
+
+export async function updateAnnouncement(id: number, data: any) {
+  const db = getDb();
+  return db.transaction(async (tx: any) => {
+    const [updated] = await tx.update(announcements).set({
+      ...(data.title !== undefined ? { title: String(data.title).trim() } : {}),
+      ...(data.body !== undefined ? { body: String(data.body).trim() } : {}),
+      ...(data.severity !== undefined ? { severity: data.severity } : {}),
+      ...(data.durationSeconds !== undefined ? { durationSeconds: Number(data.durationSeconds || 0) } : {}),
+      ...(data.audience !== undefined ? { audience: data.audience === "selected" ? "selected" : "all" } : {}),
+      ...(data.allowDismiss !== undefined ? { allowDismiss: Boolean(data.allowDismiss) } : {}),
+      ...(data.isActive !== undefined ? { isActive: Boolean(data.isActive), stoppedAt: data.isActive ? null : new Date() } : {}),
+      updatedAt: new Date(),
+    }).where(eq(announcements.id, Number(id))).returning();
+    if (!updated) return null;
+    if (data.employeeIds) {
+      await tx.delete(announcementRecipients).where(eq(announcementRecipients.announcementId, Number(id)));
+      const ids = data.employeeIds.map(Number).filter((employeeId: number) => Number.isInteger(employeeId) && employeeId > 0);
+      if (ids.length) await tx.insert(announcementRecipients).values(ids.map((employeeId: number) => ({ announcementId: Number(id), employeeId }))).onConflictDoNothing();
+    }
+    return updated;
+  });
+}
+
+export async function deleteAnnouncement(id: number) {
+  const db = getDb();
+  return db.transaction(async (tx: any) => {
+    await tx.delete(announcementReads).where(eq(announcementReads.announcementId, Number(id)));
+    await tx.delete(announcementRecipients).where(eq(announcementRecipients.announcementId, Number(id)));
+    const [deleted] = await tx.delete(announcements).where(eq(announcements.id, Number(id))).returning();
+    return deleted || null;
+  });
+}
+
+export async function markAnnouncementRead(id: number, employeeId: number) {
+  const db = getDb();
+  const [row] = await db.insert(announcementReads).values({ announcementId: Number(id), employeeId: Number(employeeId), readAt: new Date() }).onConflictDoNothing().returning();
+  return row || null;
 }
 
 // Stats

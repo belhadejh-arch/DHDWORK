@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, date, boolean, numeric } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, date, boolean, numeric, primaryKey } from "drizzle-orm/pg-core";
 
 export const admins = pgTable("admins", {
   id: serial("id").primaryKey(),
@@ -170,6 +170,36 @@ export const notifications = pgTable("notifications", {
   isRead: boolean("is_read"),
   createdAt: timestamp("created_at"),
 });
+
+export const announcements = pgTable("announcements", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  severity: text("severity").notNull().default("normal"),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+  audience: text("audience").notNull().default("all"),
+  allowDismiss: boolean("allow_dismiss").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  createdByAdminId: integer("created_by_admin_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  stoppedAt: timestamp("stopped_at"),
+});
+
+export const announcementRecipients = pgTable("announcement_recipients", {
+  announcementId: integer("announcement_id").notNull(),
+  employeeId: integer("employee_id").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.announcementId, table.employeeId] }),
+}));
+
+export const announcementReads = pgTable("announcement_reads", {
+  announcementId: integer("announcement_id").notNull(),
+  employeeId: integer("employee_id").notNull(),
+  readAt: timestamp("read_at").notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.announcementId, table.employeeId] }),
+}));
 
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),

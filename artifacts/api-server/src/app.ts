@@ -92,6 +92,12 @@ import {
   getSettings,
   updateSettings,
   getDashboardStats
+  ,listAnnouncements
+  ,listEmployeeAnnouncements
+  ,createAnnouncement
+  ,updateAnnouncement
+  ,deleteAnnouncement
+  ,markAnnouncementRead
 } from './dbStore.js';
 
 export const app = express();
@@ -1083,6 +1089,38 @@ apiRouter.get('/notifications', async (req, res) => {
   return res.json(list.map(withNotificationTarget));
 });
 
+apiRouter.get('/announcements', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  return res.json(await listAnnouncements());
+});
+
+apiRouter.post('/announcements', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const { title, body, severity, durationSeconds, audience, employeeIds, allowDismiss } = req.body || {};
+  if (!String(title || '').trim() || !String(body || '').trim()) return res.status(400).json({ message: 'العنوان ونص الإعلان مطلوبان' });
+  if (audience === 'selected' && !Array.isArray(employeeIds)) return res.status(400).json({ message: 'اختر موظفًا واحدًا على الأقل' });
+  const created = await createAnnouncement({ title, body, severity, durationSeconds, audience, employeeIds, allowDismiss, createdByAdminId: ctx.admin.id });
+  return res.status(201).json(created);
+});
+
+apiRouter.patch('/announcements/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const updated = await updateAnnouncement(Number(req.params.id), req.body || {});
+  if (!updated) return res.status(404).json({ message: 'الإعلان غير موجود' });
+  return res.json(updated);
+});
+
+apiRouter.delete('/announcements/:id', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const deleted = await deleteAnnouncement(Number(req.params.id));
+  if (!deleted) return res.status(404).json({ message: 'الإعلان غير موجود' });
+  return res.json({ success: true });
+});
+
 apiRouter.post('/notifications/read-all', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
@@ -1268,6 +1306,19 @@ apiRouter.get('/employee/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   return res.json((await listNotifications('employee', ctx.employee.id)).map(withNotificationTarget));
+});
+
+apiRouter.get('/employee/announcements', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  return res.json(await listEmployeeAnnouncements(ctx.employee.id));
+});
+
+apiRouter.post('/employee/announcements/:id/read', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  await markAnnouncementRead(Number(req.params.id), ctx.employee.id);
+  return res.json({ success: true });
 });
 
 apiRouter.post('/employee/notifications/read-all', async (req, res) => {

@@ -7,6 +7,13 @@ import NotFound from '@/pages/not-found';
 import {
   BadgeCheck,
   Bell,
+  Megaphone,
+  Pencil,
+  Pause,
+  Play,
+  Send,
+  Eye,
+  Users,
   Building2,
   CalendarDays,
   Check,
@@ -88,6 +95,22 @@ type NotificationRecord = {
   isRead?: boolean | null;
   createdAt?: string | null;
   targetPath?: string | null;
+};
+
+type Announcement = {
+  id: number;
+  title: string;
+  body: string;
+  severity: 'normal' | 'important' | 'urgent' | string;
+  durationSeconds?: number;
+  audience: 'all' | 'selected' | string;
+  allowDismiss: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  recipientEmployeeIds?: number[];
+  readEmployeeIds?: number[];
+  readCount?: number;
+  isRead?: boolean;
 };
 
 const EMPLOYEE_STORAGE_KEY = 'dhd_employee_session';
@@ -334,6 +357,106 @@ function NotificationPanel() {
   );
 }
 
+function EmployeeAnnouncementBanner() {
+  const [items, setItems] = useState<Announcement[]>([]);
+  const [dismissed, setDismissed] = useState<number[]>([]);
+  const load = useCallback(async () => {
+    const response = await fetch('/api/employee/announcements', { credentials: 'include', headers: employeeAuthHeaders() });
+    if (response.ok) setItems(await response.json() as Announcement[]);
+  }, []);
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(() => void load(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [load]);
+  const visible = items.filter((item) => !dismissed.includes(item.id));
+  if (!visible.length) return null;
+  const unread = visible.filter((item) => !item.isRead).length;
+  const markRead = async (id: number) => {
+    setItems((current) => current.map((item) => item.id === id ? { ...item, isRead: true } : item));
+    await fetch(`/api/employee/announcements/${id}/read`, { method: 'POST', credentials: 'include', headers: employeeAuthHeaders() });
+  };
+  return (
+    <section className="dhd-announcements" aria-label="إعلانات الإدارة">
+      <div className="dhd-announcements-heading">
+        <span className="dhd-announcements-icon"><Megaphone size={18} /></span>
+        <div><strong>إعلانات الإدارة</strong><span>{unread ? `${unread} جديد` : 'آخر التحديثات'}</span></div>
+      </div>
+      <div className="dhd-announcements-list">
+        {visible.map((item) => (
+          <article key={item.id} className={`dhd-announcement dhd-announcement-${item.severity} ${item.isRead ? 'is-read' : ''}`}>
+            <div className="dhd-announcement-copy" onClick={() => void markRead(item.id)}>
+              <div className="dhd-announcement-meta"><span>{item.severity === 'urgent' ? 'عاجل' : item.severity === 'important' ? 'مهم' : 'عادي'}</span><small>{formatRecordDate(item.createdAt)}</small></div>
+              <h2>{item.title}</h2><p>{item.body}</p>
+            </div>
+            {item.allowDismiss && <button type="button" className="dhd-announcement-close" aria-label="إغلاق الإعلان" onClick={() => { void markRead(item.id); setDismissed((current) => [...current, item.id]); }}>×</button>}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdminAnnouncements() {
+  const [items, setItems] = useState<Announcement[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [editing, setEditing] = useState<Announcement | null>(null);
+  const [form, setForm] = useState({ title: '', body: '', severity: 'normal', durationSeconds: 0, audience: 'all', employeeIds: [] as number[], allowDismiss: true });
+  const [busy, setBusy] = useState(false);
+  const adminHeaders = () => {
+    const token = window.localStorage.getItem('dhd_admin_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+  const load = useCallback(async () => {
+    const [announcementsResponse, employeesResponse] = await Promise.all([
+      fetch('/api/announcements', { credentials: 'include', headers: adminHeaders() }),
+      fetch('/api/employees', { credentials: 'include', headers: adminHeaders() }),
+    ]);
+    if (announcementsResponse.ok) setItems(await announcementsResponse.json() as Announcement[]);
+    if (employeesResponse.ok) setEmployees(await employeesResponse.json() as Employee[]);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const reset = () => {
+    setEditing(null);
+    setForm({ title: '', body: '', severity: 'normal', durationSeconds: 0, audience: 'all', employeeIds: [], allowDismiss: true });
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true);
+    const response = await fetch(editing ? `/api/announcements/${editing.id}` : '/api/announcements', {
+      method: editing ? 'PATCH' : 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...adminHeaders() }, body: JSON.stringify(form),
+    });
+    if (response.ok) { reset(); await load(); }
+    setBusy(false);
+  };
+  const edit = (item: Announcement) => {
+    setEditing(item);
+    setForm({ title: item.title, body: item.body, severity: item.severity, durationSeconds: item.durationSeconds || 0, audience: item.audience, employeeIds: item.recipientEmployeeIds || [], allowDismiss: item.allowDismiss });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const mutate = async (id: number, method: 'PATCH' | 'DELETE', body?: object) => {
+    await fetch(`/api/announcements/${id}`, { method, credentials: 'include', headers: { 'Content-Type': 'application/json', ...adminHeaders() }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    await load();
+  };
+  return (
+    <main className="dhd-admin-page" dir="rtl">
+      <header className="dhd-admin-header"><div className="dhd-brand"><div className="dhd-brand-mark"><Megaphone size={22} /></div><div><strong>DHD Livraison</strong><span>لوحة الإدارة</span></div></div><a href="/portal" className="dhd-back-link">بوابة الموظف</a></header>
+      <div className="dhd-admin-content">
+        <div className="dhd-admin-title"><div><p className="dhd-eyebrow">التواصل الداخلي</p><h1>الإعلانات</h1><p>أنشئ رسائل واضحة تصل إلى الموظفين المستهدفين وتابع قراءتها.</p></div><Users size={36} /></div>
+        <form className="dhd-announcement-form" onSubmit={submit}>
+          <div className="dhd-form-grid"><label>العنوان<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="مثال: تحديث مهم في مواعيد الحضور" /></label><label>نوع الإعلان<select value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}><option value="normal">عادي</option><option value="important">مهم</option><option value="urgent">عاجل</option></select></label></div>
+          <label>نص الإعلان<textarea required rows={4} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} placeholder="اكتب تفاصيل الإعلان هنا..." /></label>
+          <div className="dhd-form-grid"><label>مدة الظهور<select value={form.durationSeconds} onChange={(e) => setForm({ ...form, durationSeconds: Number(e.target.value) })}><option value={0}>بدون انتهاء</option><option value={86400}>24 ساعة</option><option value={259200}>3 أيام</option><option value={604800}>7 أيام</option><option value={2592000}>30 يومًا</option></select></label><label>المستهدفون<select value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })}><option value="all">كل الموظفين</option><option value="selected">موظفون محددون</option></select></label></div>
+          {form.audience === 'selected' && <div className="dhd-employee-picker">{employees.map((employee) => <label key={employee.id}><input type="checkbox" checked={form.employeeIds.includes(employee.id)} onChange={(e) => setForm({ ...form, employeeIds: e.target.checked ? [...form.employeeIds, employee.id] : form.employeeIds.filter((id) => id !== employee.id) })} />{employee.firstName} {employee.lastName}</label>)}</div>}
+          <label className="dhd-check-row"><input type="checkbox" checked={form.allowDismiss} onChange={(e) => setForm({ ...form, allowDismiss: e.target.checked })} /> السماح للموظف بإغلاق الإعلان</label>
+          <div className="dhd-admin-form-actions"><button className="dhd-primary-button" disabled={busy || (form.audience === 'selected' && !form.employeeIds.length)}>{editing ? <><Pencil size={17} /> حفظ التعديل</> : <><Send size={17} /> نشر الإعلان</>}</button>{editing && <button type="button" className="dhd-secondary-button" onClick={reset}>إلغاء</button>}</div>
+        </form>
+        <section className="dhd-admin-list"><div className="dhd-admin-list-heading"><h2>الإعلانات المنشورة</h2><span>{items.length} إعلان</span></div>{items.length === 0 ? <p className="dhd-empty-state">لا توجد إعلانات بعد.</p> : items.map((item) => <article className={`dhd-admin-row ${!item.isActive ? 'is-stopped' : ''}`} key={item.id}><div className="dhd-admin-row-main"><span className={`dhd-severity-chip ${item.severity}`}>{item.severity === 'urgent' ? 'عاجل' : item.severity === 'important' ? 'مهم' : 'عادي'}</span><h3>{item.title}</h3><p>{item.body}</p><small><Users size={13} /> {item.audience === 'all' ? 'كل الموظفين' : `${item.recipientEmployeeIds?.length || 0} موظفين محددين`} · {item.isActive ? 'نشط' : 'متوقف'}</small></div><div className="dhd-admin-row-side"><strong><Eye size={15} /> {item.readCount || 0} شاهدوا</strong><div><button title="تعديل" onClick={() => edit(item)}><Pencil size={16} /></button><button title={item.isActive ? 'إيقاف' : 'تفعيل'} onClick={() => void mutate(item.id, 'PATCH', { isActive: !item.isActive })}>{item.isActive ? <Pause size={16} /> : <Play size={16} />}</button><button title="حذف" className="is-danger" onClick={() => { if (window.confirm('حذف هذا الإعلان؟')) void mutate(item.id, 'DELETE'); }}><Trash2 size={16} /></button></div></div></article>)}</section>
+      </div>
+    </main>
+  );
+}
+
 function EmployeeLogin() {
   const [, navigate] = useLocation();
   const { employee, isChecking, login } = useEmployeeSession();
@@ -477,6 +600,7 @@ function EmployeeHome() {
         </div>
       </header>
       <div className="dhd-portal-content">
+        <EmployeeAnnouncementBanner />
         <section className="dhd-profile-hero">
           <div className="dhd-avatar"><UserRound size={34} /></div>
           <div>
@@ -729,6 +853,7 @@ function Router() {
         <Route path="/portal/login" component={EmployeeLogin} />
         <Route path="/portal/account" component={() => <Redirect to="/portal" />} />
         <Route path="/portal" component={EmployeeHome} />
+        <Route path="/announcements" component={AdminAnnouncements} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
