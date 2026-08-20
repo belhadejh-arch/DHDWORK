@@ -59,7 +59,25 @@
       window.setTimeout(adminPage, 350);
     }
     else if (location.pathname.indexOf('/portal') === 0 && location.pathname !== '/portal/login') { addStyle(); var observer = new MutationObserver(employeeBanner); observer.observe(document.body, { childList: true, subtree: true }); employeeBanner(); }
-    if (location.pathname.indexOf('/dashboard') === 0 || location.pathname === '/') { var nav = document.querySelector('nav'); if (nav && !document.querySelector('[data-dhd-announcements-link]')) { var a = document.createElement('a'); a.href = '/announcements'; a.dataset.dhdAnnouncementsLink = 'true'; a.textContent = '📣 الإعلانات'; a.style.cssText = 'display:block;padding:10px 16px;color:inherit;text-decoration:none'; nav.appendChild(a); } }
+    if (location.pathname.indexOf('/portal') !== 0) {
+      var addAdminLink = function () {
+        var nav = document.querySelector('nav') || document.querySelector('aside') || document.querySelector('[role="navigation"]');
+        var adminShell = document.querySelector('[data-testid="button-open-menu"]') || document.querySelector('[data-testid="button-close-menu"]');
+        if (nav && adminShell && !document.querySelector('[data-dhd-announcements-link]')) {
+          var a = document.createElement('a');
+          a.href = '/announcements';
+          a.dataset.dhdAnnouncementsLink = 'true';
+          a.textContent = '📣 الإعلانات';
+          a.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 16px;color:inherit;text-decoration:none;cursor:pointer';
+          nav.appendChild(a);
+        }
+      };
+      addAdminLink();
+      var adminObserver = new MutationObserver(addAdminLink);
+      adminObserver.observe(document.body, { childList: true, subtree: true });
+      window.setTimeout(addAdminLink, 500);
+      window.setTimeout(addAdminLink, 1500);
+    }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
