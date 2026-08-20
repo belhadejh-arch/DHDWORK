@@ -10,6 +10,7 @@
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- إعلانات الأدمن: `/announcements` لإدارة الإعلانات، و`/api/announcements` و`/api/employee/announcements` لمساراتها. تحفظ في جداول PostgreSQL `announcements` و`announcement_recipients` و`announcement_reads`، مع تسجيل قراءة كل موظف.
 - Employee entry point: `/employee-login.html`; after login, the existing portal at `/portal` loads the employee's attendance, check-out, and violations.
 - Payslips: admin PDF endpoints are `/api/salaries/:id/pdf` (open) and `/api/salaries/:id/pdf?download=1` (download); employee endpoints are `/employee/salaries/:id/pdf` and the same `download=1` variant. Both return a real `application/pdf` document built from PostgreSQL data.
 

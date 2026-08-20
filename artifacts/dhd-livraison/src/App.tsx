@@ -403,9 +403,9 @@ function AdminAnnouncements() {
   const [editing, setEditing] = useState<Announcement | null>(null);
   const [form, setForm] = useState({ title: '', body: '', severity: 'normal', durationSeconds: 0, audience: 'all', employeeIds: [] as number[], allowDismiss: true });
   const [busy, setBusy] = useState(false);
-  const adminHeaders = () => {
+  const adminHeaders = (): Record<string, string> => {
     const token = window.localStorage.getItem('dhd_admin_token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    return token ? { Authorization: `Bearer ${token}` } : { };
   };
   const load = useCallback(async () => {
     const [announcementsResponse, employeesResponse] = await Promise.all([

@@ -1098,10 +1098,11 @@ apiRouter.get('/announcements', async (req, res) => {
 apiRouter.post('/announcements', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'admin') return res.status(403).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+  const adminId = ctx.admin?.id;
   const { title, body, severity, durationSeconds, audience, employeeIds, allowDismiss } = req.body || {};
   if (!String(title || '').trim() || !String(body || '').trim()) return res.status(400).json({ message: 'العنوان ونص الإعلان مطلوبان' });
   if (audience === 'selected' && !Array.isArray(employeeIds)) return res.status(400).json({ message: 'اختر موظفًا واحدًا على الأقل' });
-  const created = await createAnnouncement({ title, body, severity, durationSeconds, audience, employeeIds, allowDismiss, createdByAdminId: ctx.admin.id });
+  const created = await createAnnouncement({ title, body, severity, durationSeconds, audience, employeeIds, allowDismiss, createdByAdminId: adminId });
   return res.status(201).json(created);
 });
 
