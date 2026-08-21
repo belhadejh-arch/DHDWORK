@@ -1234,3 +1234,119 @@ body,
     font-size: 1.45rem;
   }
 }
+
+/* Language-independent mobile contract.
+   The imported admin bundle changes documentElement.dir when the language
+   changes. These rules deliberately keep the same breakpoint/layout tree for
+   Arabic, French, and English; direction only changes text and inline flow. */
+@media (max-width: 767px) {
+  html,
+  body,
+  #root,
+  #root > div.flex.h-\[100dvh\],
+  #root > div.flex.h-\[100dvh\] > main {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] {
+    display: flex;
+    flex-direction: row;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > div.flex-1.overflow-y-auto {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    overscroll-behavior-x: none;
+  }
+
+  /* Do not let direction-dependent flex sizing recreate the desktop shell. */
+  #root > div.flex.h-\[100dvh\] main .flex,
+  #root > div.flex.h-\[100dvh\] main .grid,
+  #root > div.flex.h-\[100dvh\] main [class*='rounded'] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex[class*='flex-row'],
+  #root > div.flex.h-\[100dvh\] main .grid[class*='grid-cols-'] {
+    flex-wrap: wrap;
+  }
+
+  #root > div.flex.h-\[100dvh\] main .flex[class*='flex-row'] > *,
+  #root > div.flex.h-\[100dvh\] main .grid[class*='grid-cols-'] > * {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] main table {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] main div:has(> table),
+  #root > div.flex.h-\[100dvh\] main .overflow-x-auto {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  /* Arabic glyphs must remain in normal horizontal writing mode. */
+  #root > div.flex.h-\[100dvh\][dir='rtl'] main,
+  #root > div.flex.h-\[100dvh\][dir='rtl'] main * ,
+  html[dir='rtl'] #root > div.flex.h-\[100dvh\] main,
+  html[dir='rtl'] #root > div.flex.h-\[100dvh\] main * {
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* Arabic drawer: fixed to the right, closed off-canvas, never part of
+     document flow. The same component remains on the left for LTR. */
+  html[dir='rtl'] .fixed.top-0.end-0.z-50,
+  [dir='rtl'] .fixed.top-0.end-0.z-50 {
+    position: fixed !important;
+    right: 0 !important;
+    left: auto !important;
+    width: min(86vw, 22rem) !important;
+    max-width: calc(100vw - 0.5rem) !important;
+    min-width: 0 !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+  }
+
+  html[dir='rtl'] .fixed.top-0.end-0.z-50.translate-x-full,
+  [dir='rtl'] .fixed.top-0.end-0.z-50.translate-x-full {
+    transform: translateX(100%) !important;
+  }
+
+  html[dir='rtl'] .fixed.top-0.end-0.z-50.translate-x-0,
+  [dir='rtl'] .fixed.top-0.end-0.z-50.translate-x-0 {
+    transform: translateX(0) !important;
+  }
+
+  html[dir='rtl'] .fixed.top-0.end-0.z-50 > div,
+  [dir='rtl'] .fixed.top-0.end-0.z-50 > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    touch-action: pan-y;
+  }
+}

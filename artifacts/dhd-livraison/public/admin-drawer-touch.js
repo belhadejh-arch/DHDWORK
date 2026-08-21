@@ -44,7 +44,13 @@
   }
 
   function isRtl(shell) {
-    return shell.getAttribute('dir') === 'rtl';
+    // The language provider updates documentElement.dir. The admin shell
+    // itself does not always carry the attribute, so checking only the shell
+    // makes Arabic gestures behave like LTR after a language switch.
+    return (shell.getAttribute('dir') ||
+      shell.closest('[dir]')?.getAttribute('dir') ||
+      document.documentElement.getAttribute('dir') ||
+      getComputedStyle(shell).direction) === 'rtl';
   }
 
   function resetGesture(parts) {
