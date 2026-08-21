@@ -212,8 +212,15 @@ function NotificationPanel() {
 
   useEffect(() => {
     void loadNotifications();
-    const interval = window.setInterval(() => void loadNotifications(), 30_000);
-    return () => window.clearInterval(interval);
+    const interval = window.setInterval(() => void loadNotifications(), 5_000);
+    const refreshOnFocus = () => void loadNotifications();
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
+    };
   }, [loadNotifications]);
 
   const mutateNotification = async (id: number, method: 'read' | 'delete') => {
@@ -254,6 +261,21 @@ function NotificationPanel() {
     }
   };
 
+  const deleteAll = async () => {
+    if (!notifications.length || isMutating) return;
+    setIsMutating(true);
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...employeeAuthHeaders() },
+      });
+      if (response.ok) setNotifications([]);
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
   const openNotification = async (notification: NotificationRecord) => {
     if (!notification.isRead) {
       await mutateNotification(notification.id, 'read');
@@ -284,14 +306,14 @@ function NotificationPanel() {
                 <strong>الإشعارات</strong>
                 <span>{unreadCount ? `${unreadCount} غير مقروءة` : 'كل الإشعارات مقروءة'}</span>
               </div>
-              <button
-                type="button"
-                onClick={() => void markAllAsRead()}
-                disabled={!unreadCount || isMutating}
-                title="تحديد الكل كمقروء"
-              >
-                <Check size={14} /> تحديد الكل كمقروء
-              </button>
+              <div className="dhd-notification-heading-actions">
+                <button type="button" onClick={() => void markAllAsRead()} disabled={!unreadCount || isMutating} title="تحديد الكل كمقروء">
+                  <Check size={14} /> تحديد الكل كمقروء
+                </button>
+                <button type="button" className="is-danger" onClick={() => void deleteAll()} disabled={!notifications.length || isMutating} title="حذف صندوق الإشعارات">
+                  <Trash2 size={14} /> حذف الصندوق
+                </button>
+              </div>
             </div>
             <div className="dhd-notification-list">
               {isLoading ? (
@@ -315,6 +337,17 @@ function NotificationPanel() {
                       <small>{notification.createdAt ? formatRecordDate(notification.createdAt) : 'الآن'}</small>
                     </span>
                   </button>
+                  {!notification.isRead && (
+                    <button
+                      type="button"
+                      className="dhd-notification-mark-read"
+                      aria-label="تحديد الإشعار كمقروء"
+                      onClick={(event) => { event.stopPropagation(); void mutateNotification(notification.id, 'read'); }}
+                      disabled={isMutating}
+                    >
+                      <Check size={14} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="dhd-notification-delete"

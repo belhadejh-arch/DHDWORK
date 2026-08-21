@@ -1660,6 +1660,33 @@ export async function deleteNotification(id: number, recipientType = "admin", re
   }
 }
 
+export async function deleteAllNotifications(recipientType = "admin", recipientId?: number) {
+  try {
+    const db = getDb();
+    if (db) {
+      const scope = recipientId
+        ? and(
+            eq(notifications.recipientType, recipientType),
+            or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+          )
+        : eq(notifications.recipientType, recipientType);
+      await db.delete(notifications).where(scope);
+    }
+  } catch (err) {
+    console.warn("deleteAllNotifications failed:", err);
+    return false;
+  }
+
+  memoryStore.notifications = memoryStore.notifications.filter((n) => {
+    if (n.recipientType !== recipientType) return true;
+    if (!recipientId) return false;
+    const notificationEmployeeId = n.recipientEmployeeId ?? n.recipientId;
+    return notificationEmployeeId != null && Number(notificationEmployeeId) !== Number(recipientId);
+  });
+  saveLocalStore();
+  return true;
+}
+
 // Admin announcements are persisted separately from the legacy notification feed.
 const ANNOUNCEMENT_NEVER_EXPIRES = new Date("2999-12-31T23:59:59.999Z");
 

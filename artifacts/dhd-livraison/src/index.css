@@ -791,6 +791,19 @@ button {
   opacity: .45;
 }
 
+.dhd-notification-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dhd-notification-heading button.is-danger {
+  color: #b42318;
+  background: #fff0ef;
+}
+
 .dhd-notification-list {
   max-height: min(440px, 65vh);
   overflow-y: auto;
@@ -910,6 +923,29 @@ button {
 .dhd-notification-delete:hover {
   color: #d9473f;
   background: #ffe3e1;
+}
+
+.dhd-notification-mark-read {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  color: #26855e;
+  background: #e9f7ef;
+  cursor: pointer;
+}
+
+.dhd-notification-mark-read:hover {
+  background: #d4f0df;
+}
+
+.dhd-notification-mark-read:disabled,
+.dhd-notification-delete:disabled {
+  cursor: not-allowed;
+  opacity: .45;
 }
 
 .dhd-logout-button, .dhd-back-link {

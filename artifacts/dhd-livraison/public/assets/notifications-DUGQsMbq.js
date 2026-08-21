@@ -24,7 +24,7 @@ function Notifications(){
   },[]);
   React.useEffect(()=>{
     void load();
-    const timer=window.setInterval(()=>void load(),30000);
+    const timer=window.setInterval(()=>void load(),5000);
     return()=>window.clearInterval(timer);
   },[load]);
   const update=async(id,action)=>{
@@ -46,6 +46,14 @@ function Notifications(){
       if(response.ok)setList(items=>items.map(item=>({...item,isRead:true})));
     }finally{setBusy(null)}
   };
+  const deleteAll=async()=>{
+    if(!list.length)return;
+    setBusy("all-delete");
+    try{
+      const response=await fetch("/api/notifications",{method:"DELETE",credentials:"include",headers:apiHeaders()});
+      if(response.ok)setList([]);
+    }finally{setBusy(null)}
+  };
   const open=async(item)=>{
     if(!item.isRead)await update(item.id,"read");
     if(item.targetPath)window.location.assign(item.targetPath);
@@ -55,7 +63,10 @@ function Notifications(){
   return jsx.jsxs("div",{className:"space-y-6 max-w-4xl mx-auto",children:[
     jsx.jsxs("div",{className:"flex justify-between items-center gap-4",children:[
       jsx.jsxs("div",{children:[jsx.jsx("h1",{className:"text-3xl font-bold tracking-tight",children:"الإشعارات"}),jsx.jsx("p",{className:"text-muted-foreground mt-1",children:"تابع التنبيهات المرتبطة بسجلات النظام"})]}),
-      jsx.jsx("button",{type:"button",className:"inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50",onClick:markAll,disabled:busy==="all"||!unread,children:["✓ ","تحديد الكل كمقروء"]})
+      jsx.jsxs("div",{className:"flex flex-wrap gap-2",children:[
+        jsx.jsx("button",{type:"button",className:"inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50",onClick:markAll,disabled:busy==="all"||!unread,children:["✓ ","تحديد الكل كمقروء"]}),
+        jsx.jsx("button",{type:"button",className:"inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50",onClick:deleteAll,disabled:busy==="all-delete"||!list.length,children:["🗑 ","حذف صندوق الإشعارات"]})
+      ]})
     ]}),
     jsx.jsxs("div",{className:"flex gap-2 mb-4",children:[
       jsx.jsx("button",{type:"button",className:`rounded-md px-3 py-2 text-sm ${!unreadOnly?"bg-primary text-primary-foreground":"bg-muted"}`,onClick:()=>setUnreadOnly(false),children:"كل الإشعارات"}),
@@ -72,8 +83,9 @@ function Notifications(){
           jsx.jsxs("div",{className:"flex-1 min-w-0",children:[
             jsx.jsx("p",{className:`text-sm ${item.isRead?"text-emerald-800":"font-semibold text-red-800"}`,children:item.message||"إشعار جديد"}),
             jsx.jsx("p",{className:"text-xs text-muted-foreground mt-1",children:formatDate(item.createdAt)}),
-            jsx.jsxs("div",{className:"flex gap-3 items-center mt-2",children:[
+              jsx.jsxs("div",{className:"flex flex-wrap gap-3 items-center mt-2",children:[
               jsx.jsx("span",{className:`text-xs font-medium ${item.isRead?"text-emerald-700":"text-red-700"}`,children:item.isRead?"مقروء":"غير مقروء"}),
+              !item.isRead&&jsx.jsx("button",{type:"button",className:"text-xs font-medium text-emerald-700 hover:underline",onClick:event=>{event.stopPropagation();void update(item.id,"read")},children:"تحديد كمقروء"}),
               jsx.jsx("span",{className:"text-xs text-primary hover:underline",children:"عرض السجل المرتبط"})
             ]})
           ]}),

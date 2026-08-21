@@ -39,6 +39,91 @@
   color: #217346;
   background: #e2f4e8;
 }
+
+.dhd-admin-notification-unread {
+  color: #b42318 !important;
+  background: #fff1f0 !important;
+  border-inline-start: 3px solid #dc4c45;
+}
+
+.dhd-admin-notification-read {
+  color: #217346 !important;
+  background: #effaf2 !important;
+  border-inline-start: 3px solid #43a66f;
+}
+
+.dhd-admin-notification-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.dhd-admin-notification-read-button,
+.dhd-admin-notification-delete-button {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dhd-admin-notification-read-button {
+  color: #217346;
+  background: #e2f4e8;
+}
+
+.dhd-admin-notification-delete-button {
+  color: #b42318;
+  background: #ffe2df;
+}
+
+.dhd-admin-notification-delete-all {
+  margin-inline-start: 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: #b42318;
+  background: #ffe2df;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dhd-admin-notification-delete-all:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.dhd-admin-bell-unread svg {
+  color: #dc4c45 !important;
+}
+
+.dhd-admin-bell-count {
+  position: absolute;
+  top: -0.125rem;
+  right: -0.125rem;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 4px;
+  color: #fff;
+  background: #dc4c45;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.dhd-admin-notification-read-button:disabled,
+.dhd-admin-notification-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
 /*
  * DHD Livraison — admin mobile experience
  *

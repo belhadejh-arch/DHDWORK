@@ -89,6 +89,7 @@ import {
   markNotificationsRead,
   markSingleNotificationRead,
   deleteNotification,
+  deleteAllNotifications,
   getSettings,
   updateSettings,
   getDashboardStats
@@ -1181,6 +1182,16 @@ apiRouter.delete('/notifications/:id', async (req, res) => {
   return res.json({ success: true, notification: deleted });
 });
 
+apiRouter.delete('/notifications', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const recipientType = ctx.userType === 'employee' ? 'employee' : 'admin';
+  const recipientId = ctx.userType === 'employee' ? ctx.employee.id : undefined;
+  const deleted = await deleteAllNotifications(recipientType, recipientId);
+  if (!deleted) return res.status(500).json({ message: 'تعذر حذف صندوق الإشعارات' });
+  return res.json({ success: true });
+});
+
 // Settings
 apiRouter.get('/settings', async (req, res) => {
   const s = await getSettings();
@@ -1380,6 +1391,14 @@ apiRouter.delete('/employee/notifications/:id', async (req, res) => {
   return res.json({ success: true, notification });
 });
 
+apiRouter.delete('/employee/notifications', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const deleted = await deleteAllNotifications('employee', ctx.employee.id);
+  if (!deleted) return res.status(500).json({ message: 'تعذر حذف صندوق الإشعارات' });
+  return res.json({ success: true });
+});
+
 // Employee portal compatibility routes — all /employee/* paths used by the WebView
 app.get('/employee/me', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -1420,6 +1439,14 @@ app.delete('/employee/notifications/:id', async (req, res) => {
   const n = await deleteNotification(Number(req.params.id), 'employee', ctx.employee.id);
   if (!n) return res.status(404).json({ message: 'الإشعار غير موجود' });
   return res.json({ success: true, notification: n });
+});
+
+app.delete('/employee/notifications', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const deleted = await deleteAllNotifications('employee', ctx.employee.id);
+  if (!deleted) return res.status(500).json({ message: 'تعذر حذف صندوق الإشعارات' });
+  return res.json({ success: true });
 });
 
 app.get('/employee/salaries', async (req, res) => {

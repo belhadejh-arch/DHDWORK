@@ -100,14 +100,145 @@
     normalizeAppliedViolationLabels();
   }
 
+  var notificationRows = new WeakSet();
+  var notificationControls = new WeakSet();
+  var notificationBulkControls = new WeakSet();
+  var bellRefreshTimer = null;
+
+  function adminHeaders() {
+    var token = window.localStorage.getItem('dhd_admin_token');
+    return token ? { Authorization: 'Bearer ' + token } : {};
+  }
+
+  function decorateAdminNotificationPopover() {
+    var popovers = document.querySelectorAll('[data-radix-popper-content-wrapper]');
+    popovers.forEach(function (popover) {
+      var rows = popover.querySelectorAll('.divide-y > div');
+      if (!rows.length) return;
+      fetch('/api/notifications', { credentials: 'include', headers: Object.assign({ Accept: 'application/json' }, adminHeaders()) })
+        .then(function (response) { return response.ok ? response.json() : []; })
+        .then(function (notifications) {
+          if (!Array.isArray(notifications)) return;
+          var header = popover.querySelector('.border-b');
+          if (header && !notificationBulkControls.has(header)) {
+            notificationBulkControls.add(header);
+            var deleteAll = document.createElement('button');
+            deleteAll.type = 'button';
+            deleteAll.className = 'dhd-admin-notification-delete-all';
+            deleteAll.textContent = 'حذف الصندوق';
+            deleteAll.addEventListener('click', function (event) {
+              event.preventDefault();
+              event.stopPropagation();
+              deleteAll.disabled = true;
+              fetch('/api/notifications', {
+                method: 'DELETE', credentials: 'include', headers: adminHeaders()
+              }).then(function (response) {
+                if (response.ok) {
+                  rows.forEach(function (row) { row.remove(); });
+                  refreshAdminBell();
+                } else deleteAll.disabled = false;
+              }).catch(function () { deleteAll.disabled = false; });
+            });
+            header.appendChild(deleteAll);
+          }
+          rows.forEach(function (row, index) {
+            var notification = notifications[index];
+            if (!notification) return;
+            row.classList.toggle('dhd-admin-notification-unread', !notification.isRead);
+            row.classList.toggle('dhd-admin-notification-read', Boolean(notification.isRead));
+            if (notificationControls.has(row)) return;
+            notificationControls.add(row);
+            var actions = document.createElement('span');
+            actions.className = 'dhd-admin-notification-actions';
+            var readButton = document.createElement('button');
+            readButton.type = 'button';
+            readButton.className = 'dhd-admin-notification-read-button';
+            readButton.textContent = notification.isRead ? 'مقروء' : 'تحديد كمقروء';
+            readButton.disabled = Boolean(notification.isRead);
+            readButton.addEventListener('click', function (event) {
+              event.preventDefault();
+              event.stopPropagation();
+              readButton.disabled = true;
+              fetch('/api/notifications/' + notification.id + '/read', {
+                method: 'POST', credentials: 'include', headers: adminHeaders()
+              }).then(function (response) {
+                if (response.ok) {
+                  row.classList.remove('dhd-admin-notification-unread');
+                  row.classList.add('dhd-admin-notification-read');
+                  readButton.textContent = 'مقروء';
+                } else readButton.disabled = false;
+              }).catch(function () { readButton.disabled = false; });
+            });
+            var deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'dhd-admin-notification-delete-button';
+            deleteButton.textContent = 'حذف';
+            deleteButton.addEventListener('click', function (event) {
+              event.preventDefault();
+              event.stopPropagation();
+              deleteButton.disabled = true;
+              fetch('/api/notifications/' + notification.id, {
+                method: 'DELETE', credentials: 'include', headers: adminHeaders()
+              }).then(function (response) {
+                if (response.ok) row.remove();
+                else deleteButton.disabled = false;
+              }).catch(function () { deleteButton.disabled = false; });
+            });
+            actions.appendChild(readButton);
+            actions.appendChild(deleteButton);
+            row.appendChild(actions);
+          });
+        }).catch(function () { /* the native notification UI remains available */ });
+    });
+  }
+
+  function refreshAdminBell() {
+    if (bellRefreshTimer) return;
+    bellRefreshTimer = window.setTimeout(function () {
+      bellRefreshTimer = null;
+      fetch('/api/notifications', { credentials: 'include', headers: Object.assign({ Accept: 'application/json' }, adminHeaders()) })
+        .then(function (response) { return response.ok ? response.json() : []; })
+        .then(function (notifications) {
+          if (!Array.isArray(notifications)) return;
+          var unread = notifications.filter(function (item) { return !item.isRead; }).length;
+          var bell = document.querySelector('[data-testid="button-notification-bell"]');
+          if (!bell) return;
+          bell.classList.toggle('dhd-admin-bell-unread', unread > 0);
+          var badge = bell.querySelector('.dhd-admin-bell-count');
+          if (unread > 0) {
+            if (!badge) {
+              badge = document.createElement('span');
+              badge.className = 'dhd-admin-bell-count';
+              bell.appendChild(badge);
+            }
+            badge.textContent = unread > 99 ? '99+' : String(unread);
+          } else if (badge) {
+            badge.remove();
+          }
+        }).catch(function () { /* the native bell remains available */ });
+    }, 200);
+  }
+
+  function decorateAdminNotificationBell() {
+    decorateAdminNotificationPopover();
+    refreshAdminBell();
+    var bell = document.querySelector('[data-testid="button-notification-bell"]');
+    if (!bell || notificationRows.has(bell)) return;
+    notificationRows.add(bell);
+    var timer = window.setInterval(decorateAdminNotificationPopover, 5000);
+    window.addEventListener('beforeunload', function () { window.clearInterval(timer); }, { once: true });
+  }
+
   var observer = new MutationObserver(function (mutations) {
     mutations.forEach(function (mutation) {
       mutation.addedNodes.forEach(function (node) {
         if (node.nodeType === Node.ELEMENT_NODE) scan(node);
       });
     });
+    decorateAdminNotificationBell();
   });
 
   observer.observe(document.documentElement, { childList: true, subtree: true });
   scan(document);
+  decorateAdminNotificationBell();
 })();
