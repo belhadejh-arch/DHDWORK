@@ -93,6 +93,8 @@ import {
   getSettings,
   updateSettings,
   getDashboardStats
+  ,savePushSubscription
+  ,deletePushSubscription
   ,listAnnouncements
   ,listEmployeeAnnouncements
   ,createAnnouncement
@@ -1088,6 +1090,36 @@ apiRouter.get('/notifications', async (req, res) => {
   const recipientId = ctx.userType === 'employee' ? ctx.employee.id : undefined;
   const list = await listNotifications(recipientType, recipientId);
   return res.json(list.map(withNotificationTarget));
+});
+
+apiRouter.get('/push/public-key', (req, res) => {
+  const publicKey = process.env.VAPID_PUBLIC_KEY;
+  if (!publicKey) return res.status(503).json({ enabled: false, message: 'Push Notifications غير مهيأة بعد' });
+  return res.json({ enabled: true, publicKey });
+});
+
+apiRouter.post('/push/subscribe', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const subscription = req.body?.subscription || req.body;
+  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+    return res.status(400).json({ message: 'بيانات اشتراك Push غير صالحة' });
+  }
+  const saved = await savePushSubscription({
+    endpoint: String(subscription.endpoint),
+    p256dh: String(subscription.keys.p256dh),
+    auth: String(subscription.keys.auth),
+    userType: ctx.userType === 'employee' ? 'employee' : 'admin',
+    employeeId: ctx.userType === 'employee' ? ctx.employee.id : null,
+  });
+  return res.status(201).json({ success: Boolean(saved) });
+});
+
+apiRouter.delete('/push/subscribe', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  if (req.body?.endpoint) await deletePushSubscription(String(req.body.endpoint));
+  return res.json({ success: true });
 });
 
 apiRouter.get('/announcements', async (req, res) => {

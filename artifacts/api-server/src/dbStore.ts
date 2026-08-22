@@ -1,8 +1,21 @@
-import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins, announcements, announcementRecipients, announcementReads } from "../../../lib/db/src/index.js";
+import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins, announcements, announcementRecipients, announcementReads, pushSubscriptions } from "../../../lib/db/src/index.js";
 import { eq, and, asc, desc, sql, like, or, isNull } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import webpush from "web-push";
+
+let pushConfigured = false;
+function configurePush() {
+  if (pushConfigured) return true;
+  const publicKey = process.env.VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const subject = process.env.VAPID_SUBJECT;
+  if (!publicKey || !privateKey || !subject) return false;
+  webpush.setVapidDetails(subject, publicKey, privateKey);
+  pushConfigured = true;
+  return true;
+}
 
 // Local file backup path for resilient storage if PG is offline
 const BACKUP_FILE = path.resolve(process.cwd(), "data-store.json");
@@ -120,6 +133,7 @@ function formatEmployee(e: any, officeMap?: Map<number, string>) {
     qrCodeSecret: e.qrCodeData || e.qrCodeSecret || null,
     qrCodeData: e.qrCodeData || e.qrCodeSecret || null,
     pinCode: e.pinCode || e.passwordHash || null,
+    restDays: e.restDays || null,
     joinedAt: e.hireDate || e.joinedAt || null,
     createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null
   };
@@ -141,6 +155,7 @@ function attendanceMetrics(record: any, employee?: any) {
   const checkIn = timeToMinutes(record?.checkInTime);
   const checkOut = timeToMinutes(record?.checkOutTime);
   const start = timeToMinutes(employee?.workStartTime) ?? timeToMinutes(memoryStore.settings?.workStartTime) ?? 8 * 60;
+  const end = timeToMinutes(employee?.workEndTime) ?? timeToMinutes(memoryStore.settings?.workEndTime) ?? 17 * 60;
 
   const workedMinutes = record?.isAbsent
     ? null
@@ -156,8 +171,11 @@ function attendanceMetrics(record: any, employee?: any) {
       : 0;
   const isAbsent = Boolean(record?.isAbsent);
   const status = isAbsent ? "absent" : lateMinutes > 0 ? "late" : checkIn != null ? "present" : "absent";
+  const overtimeMinutes = record?.overtimeMinutes != null
+    ? Number(record.overtimeMinutes)
+    : checkOut != null ? Math.max(0, checkOut - end) : 0;
 
-  return { workedMinutes, lateMinutes, isAbsent, status };
+  return { workedMinutes, lateMinutes, overtimeMinutes, isAbsent, status };
 }
 
 function formatAttendanceRecord(record: any, employee?: any, office?: any, requestedDate?: string) {
@@ -172,6 +190,47 @@ function formatAttendanceRecord(record: any, employee?: any, office?: any, reque
     officeName: office?.name || record?.officeName || null,
     ...metrics,
   };
+}
+
+function employeeHasRestDay(employee: any, dateValue: string) {
+  const raw = employee?.restDays;
+  if (!raw) return false;
+  let values: unknown[] = [];
+  try {
+    const parsed = JSON.parse(String(raw));
+    values = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    values = String(raw).split(",");
+  }
+  const date = new Date(`${dateValue}T12:00:00Z`);
+  const weekday = date.getUTCDay();
+  const names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  return values.some((value) => {
+    const normalized = String(value).trim().toLowerCase();
+    return normalized === String(weekday) || normalized === names[weekday] ||
+      (weekday === 0 && ["الأحد", "الاحد"].includes(normalized)) ||
+      (weekday === 5 && ["الجمعة"].includes(normalized)) ||
+      (weekday === 6 && ["السبت"].includes(normalized));
+  });
+}
+
+async function syncDailyAbsences(db: any, dateFilter: string) {
+  const activeEmployees = await db.select().from(employees).where(eq(employees.isActive, true));
+  const existing = await db.select({ employeeId: attendance.employeeId })
+    .from(attendance).where(eq(attendance.date, dateFilter));
+  const existingIds = new Set(existing.map((row: any) => Number(row.employeeId)));
+  const missing = activeEmployees.filter((employee: any) =>
+    !existingIds.has(Number(employee.id)) && !employeeHasRestDay(employee, dateFilter),
+  );
+  if (!missing.length) return;
+  await db.insert(attendance).values(missing.map((employee: any) => ({
+    employeeId: Number(employee.id),
+    officeId: employee.officeId == null ? null : Number(employee.officeId),
+    date: dateFilter,
+    isAbsent: true,
+    notes: "غياب تلقائي: لم يتم تسجيل الحضور في يوم عمل",
+    createdAt: new Date(),
+  })));
 }
 
 function formatRequestRecord(record: any, employee?: any, office?: any) {
@@ -376,6 +435,9 @@ export async function updateEmployee(id: number, data: any) {
       if (data.baseSalary !== undefined) updateData.baseSalary = String(data.baseSalary);
       if (data.status !== undefined) updateData.isActive = data.status === "active";
       if (data.isActive !== undefined) updateData.isActive = Boolean(data.isActive);
+      if (data.restDays !== undefined) {
+        updateData.restDays = typeof data.restDays === "string" ? data.restDays : JSON.stringify(data.restDays);
+      }
       if (data.qrCodeSecret !== undefined || data.qrCodeData !== undefined) updateData.qrCodeData = data.qrCodeData || data.qrCodeSecret;
 
       const [updated] = await db.update(employees).set(updateData).where(eq(employees.id, Number(id))).returning();
@@ -673,6 +735,7 @@ export async function listAttendance(employeeId?: number, dateFilter?: string) {
     // The admin date view must include employees with no row for that day.
     // Those rows are derived as absent; no database record is created.
     if (!employeeId && dateFilter) {
+      await syncDailyAbsences(db, dateFilter);
       const rows = await db
         .select({ employee: employees, attendance: attendance, office: offices })
         .from(employees)
@@ -709,6 +772,9 @@ export async function recordAttendance(data: any) {
   try {
     const db = getDb();
     if (db) {
+      const settingsRecord = await getSettings();
+      const metrics = attendanceMetrics({ checkInTime: checkInTimeStr, isAbsent: data.status === "absent" }, emp);
+      const lateDeduction = metrics.lateMinutes > 0 ? Number(settingsRecord?.lateDeductionAmount || 0) : 0;
       const [record] = await db
         .insert(attendance)
         .values({
@@ -716,7 +782,8 @@ export async function recordAttendance(data: any) {
           officeId: Number(data.officeId || emp?.officeId || 1),
           date: dateStr,
           checkInTime: checkInTimeStr,
-          lateMinutes: attendanceMetrics({ checkInTime: checkInTimeStr, isAbsent: data.status === "absent" }, emp).lateMinutes,
+          lateMinutes: metrics.lateMinutes,
+          lateDeduction: String(lateDeduction),
           isAbsent: data.status === "absent",
           checkInLat: data.latitude ? String(data.latitude) : null,
           checkInLng: data.longitude ? String(data.longitude) : null,
@@ -762,11 +829,16 @@ export async function completeAttendance(id: number, data: any) {
     ...existing.attendance,
     checkOutTime: data.checkOutTime,
   }, existing.employee);
+  const settingsRecord = await getSettings();
+  const overtimeRate = Number(settingsRecord?.overtimeHourlyRate || 0);
   const [updated] = await db.update(attendance)
     .set({
       checkOutTime: data.checkOutTime,
       workedMinutes: metrics.workedMinutes,
       lateMinutes: metrics.lateMinutes,
+      overtimeMinutes: metrics.overtimeMinutes,
+      overtimeBonus: String((metrics.overtimeMinutes / 60) * overtimeRate),
+      lateDeduction: String(metrics.lateMinutes > 0 ? Number(settingsRecord?.lateDeductionAmount || 0) : 0),
       checkOutLat: data.latitude == null ? null : String(data.latitude),
       checkOutLng: data.longitude == null ? null : String(data.longitude)
     })
@@ -1618,11 +1690,80 @@ export async function createNotificationRecord(data: {
       isRead: false,
       createdAt: new Date(),
     }).returning();
+    if (record) await sendPushNotification(record);
     return record || null;
   } catch (err) {
     console.warn("createNotificationRecord failed:", err);
     return null;
   }
+}
+
+export async function savePushSubscription(data: {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userType: "admin" | "employee";
+  employeeId?: number | null;
+}) {
+  const db = getDb();
+  const existing = await db.select().from(pushSubscriptions)
+    .where(eq(pushSubscriptions.endpoint, data.endpoint)).limit(1);
+  if (existing[0]) {
+    const [updated] = await db.update(pushSubscriptions).set({
+      p256dh: data.p256dh,
+      auth: data.auth,
+      userType: data.userType,
+      employeeId: data.employeeId ?? null,
+      updatedAt: new Date(),
+    }).where(eq(pushSubscriptions.id, existing[0].id)).returning();
+    return updated || existing[0];
+  }
+  const [created] = await db.insert(pushSubscriptions).values({
+    endpoint: data.endpoint,
+    p256dh: data.p256dh,
+    auth: data.auth,
+    userType: data.userType,
+    employeeId: data.employeeId ?? null,
+  }).returning();
+  return created || null;
+}
+
+export async function deletePushSubscription(endpoint: string) {
+  const db = getDb();
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  return true;
+}
+
+export async function sendPushNotification(notification: any) {
+  if (!configurePush()) return false;
+  const db = getDb();
+  const rows = await db.select().from(pushSubscriptions).where(eq(
+    pushSubscriptions.userType,
+    String(notification.recipientType || "admin"),
+  ));
+  const recipients = rows.filter((row: any) =>
+    notification.recipientType !== "employee" ||
+    notification.recipientEmployeeId == null ||
+    Number(row.employeeId) === Number(notification.recipientEmployeeId),
+  );
+  await Promise.all(recipients.map(async (row: any) => {
+    try {
+      await webpush.sendNotification({
+        endpoint: row.endpoint,
+        keys: { p256dh: row.p256dh, auth: row.auth },
+      }, JSON.stringify({
+        title: "DHD Livraison",
+        body: notification.message || "إشعار جديد",
+        notificationId: notification.id,
+        type: notification.type || "info",
+      }));
+    } catch (error: any) {
+      if (error?.statusCode === 404 || error?.statusCode === 410) {
+        await deletePushSubscription(row.endpoint);
+      }
+    }
+  }));
+  return recipients.length > 0;
 }
 
 export async function markSingleNotificationRead(id: number, recipientType = "admin", recipientId?: number) {

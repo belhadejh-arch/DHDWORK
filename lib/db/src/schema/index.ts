@@ -46,6 +46,7 @@ export const employees = pgTable("employees", {
   deletedAt: timestamp("deleted_at"),
   deletionReason: text("deletion_reason"),
   isUnrestricted: boolean("is_unrestricted"),
+  restDays: text("rest_days"),
 });
 
 export const attendance = pgTable("attendance", {
@@ -222,4 +223,15 @@ export const sessions = pgTable("sessions", {
   userId: integer("user_id"),
   createdAt: timestamp("created_at"),
   expiresAt: timestamp("expires_at"),
+});
+
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userType: text("user_type").notNull(),
+  employeeId: integer("employee_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

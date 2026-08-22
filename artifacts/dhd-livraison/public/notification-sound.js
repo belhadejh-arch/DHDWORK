@@ -105,6 +105,61 @@
     notificationBaselineReady = true;
   }
 
+  function pushAuthHeaders() {
+    const token = localStorage.getItem('dhd_employee_token') || localStorage.getItem('dhd_admin_token');
+    return token ? { Authorization: 'Bearer ' + token } : {};
+  }
+
+  function base64ToBytes(value) {
+    const padding = '='.repeat((4 - value.length % 4) % 4);
+    const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  }
+
+  async function enablePushNotifications() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      showSuccess('هذا المتصفح لا يدعم الإشعارات خارج التطبيق');
+      return;
+    }
+    const keyResponse = await fetch('/api/push/public-key', { credentials: 'include', headers: pushAuthHeaders() });
+    if (!keyResponse.ok) {
+      showSuccess('إشعارات Push غير مهيأة على الخادم بعد');
+      return;
+    }
+    const keyData = await keyResponse.json();
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64ToBytes(keyData.publicKey),
+      });
+    }
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...pushAuthHeaders() },
+      body: JSON.stringify({ subscription }),
+    });
+    showSuccess('تم تفعيل الإشعارات خارج التطبيق');
+  }
+
+  function addPushSetting() {
+    if (!('Notification' in window) || Notification.permission !== 'default' || document.querySelector('.dhd-push-setting')) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'dhd-push-setting';
+    button.textContent = 'تفعيل إشعارات الهاتف';
+    button.style.cssText = 'position:fixed;z-index:9999;left:18px;bottom:18px;padding:11px 15px;border:0;border-radius:12px;background:#12355b;color:#fff;font:600 13px Changa,Inter,sans-serif;box-shadow:0 8px 24px #0003;cursor:pointer';
+    button.addEventListener('click', function () {
+      button.disabled = true;
+      enablePushNotifications().catch(() => showSuccess('تعذر تفعيل إشعارات الهاتف')).finally(() => button.remove());
+    });
+    document.body.appendChild(button);
+  }
+
   function addSoundSetting() {
     if (!/settings|إعدادات/i.test(`${location.pathname} ${document.body?.textContent || ''}`)) return;
     if (document.querySelector('.dhd-sound-setting')) return;
@@ -178,4 +233,5 @@
   const observer = new MutationObserver(addSoundSetting);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   addSoundSetting();
+  addPushSetting();
 })();
