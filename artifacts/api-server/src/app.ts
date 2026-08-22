@@ -1504,7 +1504,7 @@ app.get('/employee/salaries/:month/payslip', async (req, res) => {
 
   const data = toPayslipPayload(
     await getSalaryPdfData(Number(payslip.id)),
-    `/employee/salaries/${Number(payslip.id)}/pdf`,
+    `/employee/salaries/${Number(payslip.id)}/pdf?t=${issuePdfToken(Number(payslip.id))}`,
   );
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
@@ -1512,12 +1512,14 @@ app.get('/employee/salaries/:month/payslip', async (req, res) => {
 
 // Employee PDF payslip by salary ID
 app.get('/employee/salaries/:id/pdf', async (req, res) => {
-  const ctx = await getAuthContext(req);
-  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  const data = await getSalaryPdfData(Number(req.params.id));
+  const salaryId = Number(req.params.id);
+  const tokenOk = consumePdfToken(req.query.t as string | undefined, salaryId);
+  const ctx = tokenOk ? null : await getAuthContext(req);
+  if (!tokenOk && ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const data = await getSalaryPdfData(salaryId);
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   // Ensure employee only sees own payslips
-  if (Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
+  if (!tokenOk && Number(data.salary.employeeId) !== Number(ctx!.employee.id)) {
     return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
   }
   return sendPayslipPdf(res, data, req.query.download === '1');

@@ -656,17 +656,24 @@ function SalarySection() {
   const openPdf = async (salary: SalaryRecord) => {
     if (opening !== null) return;
     setOpening(salary.id);
+    const previewWindow = window.open('', '_blank');
     try {
       const headers = employeeAuthHeaders();
       const resp = await fetch(`/api/employee/salaries/${salary.id}/pdf`, { credentials: 'include', headers });
       if (!resp.ok) throw new Error('تعذر تحميل الكشف');
+      const contentType = resp.headers.get('content-type') || '';
+      if (!contentType.includes('application/pdf')) throw new Error('الاستجابة ليست ملف PDF');
       const blob = await resp.blob();
+      if (!blob.size) throw new Error('ملف PDF فارغ');
       const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank');
-      if (!win) window.location.assign(url);
+      if (previewWindow) {
+        previewWindow.location.href = url;
+      } else {
+        window.location.assign(url);
+      }
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch {
-      /* silently fail — the button resets */
+      if (previewWindow) previewWindow.close();
     } finally {
       setOpening(null);
     }
