@@ -1230,6 +1230,7 @@ export async function createViolation(data: any) {
       referenceId: record.id,
       referenceIdType: "violation",
       isRead: false,
+      createdAt: new Date(),
     });
 
     return { record: { ...record, salaryId, status: amount > 0 ? "deducted" : "applied" }, deductionApplied };
@@ -1282,7 +1283,7 @@ export async function listNotifications(recipientType = "admin", recipientId?: n
       if (recipientId) {
         list = list.filter((n: any) => Number(n.recipientEmployeeId) === Number(recipientId) || n.recipientEmployeeId === null);
       }
-      return list.sort((a: any, b: any) => {
+      return list.map((notification: any) => ({ ...notification, isRead: Boolean(notification.isRead) })).sort((a: any, b: any) => {
         const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime || Number(b.id) - Number(a.id);

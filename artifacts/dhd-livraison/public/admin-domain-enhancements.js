@@ -166,6 +166,7 @@
                   row.classList.remove('dhd-admin-notification-unread');
                   row.classList.add('dhd-admin-notification-read');
                   readButton.textContent = 'مقروء';
+                  refreshAdminBell();
                 } else readButton.disabled = false;
               }).catch(function () { readButton.disabled = false; });
             });
@@ -180,7 +181,10 @@
               fetch('/api/notifications/' + notification.id, {
                 method: 'DELETE', credentials: 'include', headers: adminHeaders()
               }).then(function (response) {
-                if (response.ok) row.remove();
+                if (response.ok) {
+                  row.remove();
+                  refreshAdminBell();
+                }
                 else deleteButton.disabled = false;
               }).catch(function () { deleteButton.disabled = false; });
             });
@@ -225,7 +229,10 @@
     var bell = document.querySelector('[data-testid="button-notification-bell"]');
     if (!bell || notificationRows.has(bell)) return;
     notificationRows.add(bell);
-    var timer = window.setInterval(decorateAdminNotificationPopover, 5000);
+    var timer = window.setInterval(function () {
+      decorateAdminNotificationPopover();
+      refreshAdminBell();
+    }, 2000);
     window.addEventListener('beforeunload', function () { window.clearInterval(timer); }, { once: true });
   }
 

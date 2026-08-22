@@ -90,6 +90,56 @@ type NotificationRecord = {
   targetPath?: string | null;
 };
 
+const notificationCopy = {
+  ar: {
+    title: 'الإشعارات',
+    unread: (count: number) => `${count} غير مقروءة`,
+    allRead: 'كل الإشعارات مقروءة',
+    loading: 'جارٍ تحميل الإشعارات...',
+    empty: 'لا توجد إشعارات.',
+    read: 'مقروء',
+    unreadLabel: 'غير مقروء',
+    markAll: 'تحديد الكل كمقروء',
+    deleteBox: 'حذف صندوق الإشعارات',
+    delete: 'حذف الإشعار',
+    mark: 'تحديد الإشعار كمقروء',
+    newNotification: 'إشعار جديد',
+  },
+  fr: {
+    title: 'Notifications',
+    unread: (count: number) => `${count} non lue${count > 1 ? 's' : ''}`,
+    allRead: 'Toutes les notifications sont lues',
+    loading: 'Chargement des notifications...',
+    empty: 'Aucune notification.',
+    read: 'Lue',
+    unreadLabel: 'Non lue',
+    markAll: 'Tout marquer comme lu',
+    deleteBox: 'Vider la boîte de notifications',
+    delete: 'Supprimer la notification',
+    mark: 'Marquer comme lue',
+    newNotification: 'Nouvelle notification',
+  },
+  en: {
+    title: 'Notifications',
+    unread: (count: number) => `${count} unread`,
+    allRead: 'All notifications are read',
+    loading: 'Loading notifications...',
+    empty: 'No notifications.',
+    read: 'Read',
+    unreadLabel: 'Unread',
+    markAll: 'Mark all as read',
+    deleteBox: 'Clear notification inbox',
+    delete: 'Delete notification',
+    mark: 'Mark notification as read',
+    newNotification: 'New notification',
+  },
+} as const;
+
+function getNotificationCopy() {
+  const language = window.localStorage.getItem('dhd-language');
+  return notificationCopy[language === 'fr' || language === 'en' ? language : 'ar'];
+}
+
 const EMPLOYEE_STORAGE_KEY = 'dhd_employee_session';
 const EMPLOYEE_TOKEN_KEY = 'dhd_employee_token';
 
@@ -194,6 +244,7 @@ function NotificationPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const unreadCount = notifications.filter((notification) => !notification.isRead).length;
+  const copy = getNotificationCopy();
 
   const loadNotifications = useCallback(async () => {
     setIsLoading(true);
@@ -212,7 +263,7 @@ function NotificationPanel() {
 
   useEffect(() => {
     void loadNotifications();
-    const interval = window.setInterval(() => void loadNotifications(), 5_000);
+    const interval = window.setInterval(() => void loadNotifications(), 2_000);
     const refreshOnFocus = () => void loadNotifications();
     window.addEventListener('focus', refreshOnFocus);
     document.addEventListener('visibilitychange', refreshOnFocus);
@@ -300,26 +351,26 @@ function NotificationPanel() {
       {isOpen && (
         <>
           <div className="dhd-notification-overlay" onClick={() => setIsOpen(false)} />
-          <section className="dhd-notification-popover" aria-label="الإشعارات">
+          <section className="dhd-notification-popover" aria-label={copy.title}>
             <div className="dhd-notification-heading">
               <div>
-                <strong>الإشعارات</strong>
-                <span>{unreadCount ? `${unreadCount} غير مقروءة` : 'كل الإشعارات مقروءة'}</span>
+                <strong>{copy.title}</strong>
+                <span>{unreadCount ? copy.unread(unreadCount) : copy.allRead}</span>
               </div>
               <div className="dhd-notification-heading-actions">
-                <button type="button" onClick={() => void markAllAsRead()} disabled={!unreadCount || isMutating} title="تحديد الكل كمقروء">
-                  <Check size={14} /> تحديد الكل كمقروء
+                <button type="button" onClick={() => void markAllAsRead()} disabled={!unreadCount || isMutating} title={copy.markAll}>
+                  <Check size={14} /> {copy.markAll}
                 </button>
-                <button type="button" className="is-danger" onClick={() => void deleteAll()} disabled={!notifications.length || isMutating} title="حذف صندوق الإشعارات">
-                  <Trash2 size={14} /> حذف الصندوق
+                <button type="button" className="is-danger" onClick={() => void deleteAll()} disabled={!notifications.length || isMutating} title={copy.deleteBox}>
+                  <Trash2 size={14} /> {copy.deleteBox}
                 </button>
               </div>
             </div>
             <div className="dhd-notification-list">
               {isLoading ? (
-                <p className="dhd-notification-empty">جارٍ تحميل الإشعارات...</p>
+                <p className="dhd-notification-empty">{copy.loading}</p>
               ) : notifications.length === 0 ? (
-                <p className="dhd-notification-empty">لا توجد إشعارات.</p>
+                <p className="dhd-notification-empty">{copy.empty}</p>
               ) : notifications.map((notification) => (
                 <article
                   key={notification.id}
@@ -332,8 +383,8 @@ function NotificationPanel() {
                   >
                     <span className="dhd-notification-state" aria-hidden="true" />
                     <span>
-                      <strong>{notification.isRead ? 'مقروء' : 'غير مقروء'}</strong>
-                      <span>{notification.message || 'إشعار جديد'}</span>
+                      <strong>{notification.isRead ? copy.read : copy.unreadLabel}</strong>
+                      <span>{notification.message || copy.newNotification}</span>
                       <small>{notification.createdAt ? formatRecordDate(notification.createdAt) : 'الآن'}</small>
                     </span>
                   </button>
@@ -341,7 +392,7 @@ function NotificationPanel() {
                     <button
                       type="button"
                       className="dhd-notification-mark-read"
-                      aria-label="تحديد الإشعار كمقروء"
+                      aria-label={copy.mark}
                       onClick={(event) => { event.stopPropagation(); void mutateNotification(notification.id, 'read'); }}
                       disabled={isMutating}
                     >
@@ -351,7 +402,7 @@ function NotificationPanel() {
                   <button
                     type="button"
                     className="dhd-notification-delete"
-                    aria-label="حذف الإشعار"
+                    aria-label={copy.delete}
                     onClick={(event) => { event.stopPropagation(); void mutateNotification(notification.id, 'delete'); }}
                     disabled={isMutating}
                   >
