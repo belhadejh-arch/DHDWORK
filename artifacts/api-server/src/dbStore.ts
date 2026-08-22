@@ -230,7 +230,7 @@ async function syncDailyAbsences(db: any, dateFilter: string) {
     isAbsent: true,
     notes: "غياب تلقائي: لم يتم تسجيل الحضور في يوم عمل",
     createdAt: new Date(),
-  })));
+  }))).onConflictDoNothing({ target: [attendance.employeeId, attendance.date] });
 }
 
 function formatRequestRecord(record: any, employee?: any, office?: any) {
@@ -732,8 +732,7 @@ export async function createOffice(data: any) {
 export async function listAttendance(employeeId?: number, dateFilter?: string) {
   try {
     const db = getDb();
-    // The admin date view must include employees with no row for that day.
-    // Those rows are derived as absent; no database record is created.
+    // The admin date view persists missing workday records as absences.
     if (!employeeId && dateFilter) {
       await syncDailyAbsences(db, dateFilter);
       const rows = await db
@@ -789,10 +788,16 @@ export async function recordAttendance(data: any) {
           checkInLng: data.longitude ? String(data.longitude) : null,
           notes: data.notes || null
         })
+        .onConflictDoNothing({ target: [attendance.employeeId, attendance.date] })
         .returning();
       if (record) {
         return formatAttendanceRecord(record, emp);
       }
+      const [existing] = await db.select().from(attendance).where(and(
+        eq(attendance.employeeId, Number(data.employeeId)),
+        eq(attendance.date, dateStr),
+      )).limit(1);
+      if (existing) return formatAttendanceRecord(existing, emp);
     }
   } catch (err) {
     console.warn("DB recordAttendance failed, using fallback:", err);

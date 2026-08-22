@@ -10,6 +10,7 @@
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Push Notifications: Web Push requires the Replit Secrets `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`; the UI registers `/sw.js` and `/api/push/subscribe` after the user grants permission.
 - إعلانات الأدمن: `/announcements` لإدارة الإعلانات، و`/api/announcements` و`/api/employee/announcements` لمساراتها. تحفظ في جداول PostgreSQL `announcements` و`announcement_recipients` و`announcement_reads`، مع تسجيل قراءة كل موظف.
 - Employee entry point: `/employee-login.html`; after login, the existing portal at `/portal` loads the employee's attendance, check-out, and violations.
 - Payslips: admin PDF endpoints are `/api/salaries/:id/pdf` (open) and `/api/salaries/:id/pdf?download=1` (download); employee endpoints are `/employee/salaries/:id/pdf` and the same `download=1` variant. Both return a real `application/pdf` document built from PostgreSQL data.
@@ -43,6 +44,7 @@
 
 - لا توجد بيانات موظفين تجريبية أو مزروعة؛ قوائم الموظفين والمكاتب والأدمن تقرأ من PostgreSQL مباشرة مع الحفاظ على IDs والعلاقات.
 - QR يُقبل للتحقق أو تسجيل الدخول فقط إذا طابق `qr_code_data` المحفوظ للسجل الصحيح؛ الرقم التسلسلي ليس بديلًا عن QR.
+- الحضور يفرض سجلًا واحدًا لكل موظف في كل تاريخ، ويحفظ الغياب التلقائي في PostgreSQL مع استثناء أيام الراحة الموجودة في `employees.rest_days`.
 - مسارات QR القديمة والجديدة (`qrcode` و`qr-code`) مدعومة للحفاظ على توافق الواجهة المستوردة.
 - خدمة الويب في `/` وخدمة API في `/api`، وتتم إدارة الخدمتين عبر workflows المملوكة للـartifacts.
 

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, date, boolean, numeric, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, date, boolean, numeric, primaryKey, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const admins = pgTable("admins", {
   id: serial("id").primaryKey(),
@@ -68,7 +68,9 @@ export const attendance = pgTable("attendance", {
   isAbsent: boolean("is_absent"),
   notes: text("notes"),
   createdAt: timestamp("created_at"),
-});
+}, (table) => ({
+  employeeDateUnique: uniqueIndex("attendance_employee_date_unique").on(table.employeeId, table.date),
+}));
 
 export const advances = pgTable("advances", {
   id: serial("id").primaryKey(),
