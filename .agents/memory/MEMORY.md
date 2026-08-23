@@ -5,3 +5,4 @@
 - [DHD auto-absence](dhd-auto-absence.md) — markAutoAbsences() runs at startup + hourly; respects restDays; safe to re-run via POST /api/admin/mark-absences.
 - [DHD PDF opening](dhd-pdf-opening.md) — PDF actions must fetch a validated blob or use a short-lived token URL so auth headers and popup blockers do not break opening.
 - [DHD Vite entry file](dhd-vite-entry.md) — runtime extensions must be linked from the artifact-root index.html; public/index.html is not Vite's development entry.
+- [DHD admin extensions and auth](dhd-admin-extension-auth.md) — global admin scripts load before login; never permanently cache an unauthenticated /auth/me result.

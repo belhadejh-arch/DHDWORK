@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import PDFDocument from 'pdfkit';
+import QRCode from 'qrcode';
 
 // ─── Short-lived PDF download tokens ─────────────────────────────────────────
 // Allows window.open(pdfUrl) to work without relying on cookies or auth headers.
@@ -531,8 +532,11 @@ apiRouter.post('/offices/:id/qrcode/regenerate', async (req, res) => {
 });
 
 apiRouter.get('/admins/:id/qrcode', async (req, res) => {
-  const admin = await getAdminById(Number(req.params.id));
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
+  let admin = await getAdminById(Number(req.params.id));
   if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
+  if (!admin.qrCodeData) admin = await rotateAdminQr(Number(req.params.id));
   return res.json({
     adminId: admin.id,
     qrCodeSecret: admin.qrCodeData || null,
@@ -540,7 +544,28 @@ apiRouter.get('/admins/:id/qrcode', async (req, res) => {
   });
 });
 
+apiRouter.get('/admins/:id/qrcode.svg', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
+  let admin = await getAdminById(Number(req.params.id));
+  if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
+  if (!admin.qrCodeData) admin = await rotateAdminQr(Number(req.params.id));
+  if (!admin?.qrCodeData) return res.status(500).json({ message: 'تعذر إنشاء رمز QR للمسؤول' });
+  const svg = await QRCode.toString(admin.qrCodeData, {
+    type: 'svg',
+    errorCorrectionLevel: 'M',
+    margin: 2,
+    width: 220,
+    color: { dark: '#2d2926', light: '#ffffff' }
+  });
+  res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.send(svg);
+});
+
 apiRouter.get('/admins/:id/serial', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
   // The profile must show the persisted identifier used by the account.
   // Do not create a new serial as a side effect of opening the profile.
   const admin = await getAdminById(Number(req.params.id));
@@ -562,6 +587,8 @@ apiRouter.patch('/admins/:id', async (req, res) => {
 });
 
 apiRouter.post('/admins/:id/qrcode/regenerate', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
   const admin = await rotateAdminQr(Number(req.params.id));
   if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
   return res.json({

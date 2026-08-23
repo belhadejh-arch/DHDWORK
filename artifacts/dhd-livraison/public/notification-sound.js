@@ -72,6 +72,10 @@
     toast.dataset.timer = String(window.setTimeout(() => toast.remove(), 4000));
   }
 
+  function isSettingsPage() {
+    return /^\/settings\/?$/.test(window.location.pathname);
+  }
+
   async function fetchNotifications(endpoint) {
     try {
       const response = await window.fetch(endpoint, {
@@ -147,21 +151,28 @@
   }
 
   function addPushSetting() {
-    if (!('Notification' in window) || Notification.permission !== 'default' || document.querySelector('.dhd-push-setting')) return;
+    if (
+      !isSettingsPage() ||
+      !('Notification' in window) ||
+      Notification.permission !== 'default' ||
+      document.querySelector('.dhd-push-setting')
+    ) return;
+    const soundPanel = document.querySelector('.dhd-sound-setting');
+    if (!soundPanel) return;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'dhd-push-setting';
     button.textContent = 'تفعيل إشعارات الهاتف';
-    button.style.cssText = 'position:fixed;z-index:9999;left:18px;bottom:18px;padding:11px 15px;border:0;border-radius:12px;background:#12355b;color:#fff;font:600 13px Changa,Inter,sans-serif;box-shadow:0 8px 24px #0003;cursor:pointer';
+    button.style.cssText = 'margin-top:12px;padding:10px 14px;border:0;border-radius:10px;background:#12355b;color:#fff;font:600 13px Changa,Inter,sans-serif;cursor:pointer';
     button.addEventListener('click', function () {
       button.disabled = true;
       enablePushNotifications().catch(() => showSuccess('تعذر تفعيل إشعارات الهاتف')).finally(() => button.remove());
     });
-    document.body.appendChild(button);
+    soundPanel.appendChild(button);
   }
 
   function addSoundSetting() {
-    if (!/settings|إعدادات/i.test(`${location.pathname} ${document.body?.textContent || ''}`)) return;
+    if (!isSettingsPage()) return;
     if (document.querySelector('.dhd-sound-setting')) return;
     const host = document.querySelector('main, [role="main"], .container, body');
     if (!host) return;
@@ -169,13 +180,14 @@
     panel.className = 'dhd-sound-setting';
     panel.dir = 'rtl';
     panel.style.cssText = 'margin:16px 0;padding:16px;border:1px solid #eadfd3;border-radius:16px;background:#fffaf5;color:#3c3026;font:14px/1.6 Changa,Inter,sans-serif';
-    panel.innerHTML = '<strong style="display:block;margin-bottom:8px">أصوات الإشعارات</strong><label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="dhd-sound-toggle" style="width:18px;height:18px"> تشغيل صوت الإشعارات عند وصول إشعار جديد ونجاح تسجيل QR</label>';
+    panel.innerHTML = '<strong style="display:block;margin-bottom:8px">إشعارات التطبيق</strong><label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="dhd-sound-toggle" style="width:18px;height:18px"> تشغيل صوت الإشعارات عند وصول إشعار جديد ونجاح تسجيل QR</label><p style="margin:8px 0 0;color:#7e6e60;font-size:12px">يتم حفظ هذا الاختيار على الجهاز الحالي.</p>';
     const toggle = panel.querySelector('.dhd-sound-toggle');
     toggle.checked = enabled;
     toggle.addEventListener('change', function () {
       enabled = toggle.checked;
       localStorage.setItem(SETTING_KEY, String(enabled));
     });
+    addPushSetting();
     host.prepend(panel);
   }
 
@@ -230,7 +242,10 @@
 
   pollNotifications();
   window.setInterval(pollNotifications, POLL_MS);
-  const observer = new MutationObserver(addSoundSetting);
+  const observer = new MutationObserver(function () {
+    addSoundSetting();
+    addPushSetting();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   addSoundSetting();
   addPushSetting();

@@ -1,0 +1,79 @@
+.dhd-admin-account-card {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 66rem);
+  margin: 0 auto 1.25rem;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid #f0d8bd;
+  border-radius: 1rem;
+  color: #3e3027;
+  background: linear-gradient(135deg, #fffaf4, #fff);
+  box-shadow: 0 8px 24px rgba(90, 54, 20, .06);
+  font: 500 13px/1.6 Changa, Inter, sans-serif;
+}
+
+.dhd-admin-account-card__heading {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+}
+
+.dhd-admin-account-card__heading > div { display: grid; gap: .1rem; }
+.dhd-admin-account-card__heading strong { font-size: 15px; }
+.dhd-admin-account-card__heading span { color: #8a7869; font-size: 11px; }
+.dhd-admin-account-card__icon {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: .75rem;
+  color: #dd620d !important;
+  background: #fff0df;
+  font-size: 1.2rem !important;
+}
+
+.dhd-admin-account-card__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .7rem;
+}
+
+.dhd-admin-account-card__fields > div {
+  min-width: 0;
+  padding: .7rem .8rem;
+  border: 1px solid #f0e5d9;
+  border-radius: .7rem;
+  background: #fff;
+}
+
+.dhd-admin-account-card__fields span,
+.dhd-admin-account-card__fields b { display: block; overflow-wrap: anywhere; }
+.dhd-admin-account-card__fields span { color: #927f70; font-size: 11px; }
+.dhd-admin-account-card__fields b { margin-top: .16rem; color: #45362c; font: 700 12px/1.5 Inter, Changa, sans-serif; }
+.dhd-admin-account-card__link { color: #c95408; font-weight: 700; text-decoration: none; }
+.dhd-admin-account-card__link:hover { text-decoration: underline; }
+.dhd-admin-account-card__qr { padding-top: .85rem; border-top: 1px solid #f2e7dc; }
+.dhd-admin-account-card__qr p { margin: .25rem 0 .7rem; color: #7e6d5e; font-size: 12px; }
+.dhd-admin-account-card__copy { min-height: 2.35rem; padding: .45rem .8rem; border: 1px solid #e0c6ac; border-radius: .55rem; color: #9a4308; background: #fff; cursor: pointer; font: inherit; font-weight: 700; }
+.dhd-admin-account-card__copy:disabled { cursor: not-allowed; opacity: .55; }
+.dhd-admin-account-card__qr-image {
+  display: grid;
+  place-items: center;
+  width: min(100%, 15.5rem);
+  min-height: 14rem;
+  margin: .75rem 0;
+  padding: .75rem;
+  border: 1px solid #eee0d2;
+  border-radius: .9rem;
+  color: #857363;
+  background: #fff;
+  text-align: center;
+}
+.dhd-admin-account-card__qr-image svg { display: block; width: 100%; height: auto; max-width: 13.75rem; }
+.dhd-admin-account-card__qr-image .is-error { color: #b42318; }
+.dhd-admin-account-card__qr-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+
+@media (max-width: 620px) {
+  .dhd-admin-account-card { margin-bottom: 1rem; padding: 1rem; }
+  .dhd-admin-account-card__fields { grid-template-columns: 1fr; }
+}
