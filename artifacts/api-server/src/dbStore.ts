@@ -1365,6 +1365,17 @@ export async function createViolation(data: any) {
 
 // Salaries
 export async function listSalaries(employeeId?: number) {
+  const normalizeSalary = (salary: any) => ({
+    ...salary,
+    baseSalary: Number(salary?.baseSalary || 0),
+    overtimeBonus: Number(salary?.overtimeBonus || 0),
+    lateDeductions: Number(salary?.lateDeductions || 0),
+    advanceDeductions: Number(salary?.advanceDeductions || 0),
+    violationDeductions: Number(salary?.violationDeductions || 0),
+    bonuses: Number(salary?.bonuses || 0),
+    finalSalary: Number(salary?.finalSalary || salary?.netSalary || 0),
+  });
+
   try {
     const db = getDb();
     if (db) {
@@ -1373,7 +1384,7 @@ export async function listSalaries(employeeId?: number) {
       if (employeeId) {
         list = list.filter((s: any) => Number(s.employeeId) === Number(employeeId));
       }
-      return list;
+      return list.map(normalizeSalary);
     }
   } catch (err) {
     console.warn("DB listSalaries failed, using fallback:", err);
@@ -1383,7 +1394,7 @@ export async function listSalaries(employeeId?: number) {
   if (employeeId) {
     list = list.filter((s) => Number(s.employeeId) === Number(employeeId));
   }
-  return list;
+  return list.map(normalizeSalary);
 }
 
 // Notifications
