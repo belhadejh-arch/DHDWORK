@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "postgresql-16"]
+modules = ["nodejs-20", "web", "bash", "python-base-3.13"]
 
 [deployment]
 router = "application"
@@ -58,3 +58,9 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BE1FW7wyTolAHwwGujP1g9YUw0CkZcqUDm7xLRaqiZaIR9Vz6mC_BXuY760srhS8hj_Djkfns_QCdpphGMiggbQ"
+VAPID_SUBJECT = "mailto:admin@dhd-livraison.dz"

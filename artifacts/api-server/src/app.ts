@@ -101,6 +101,10 @@ import {
   ,updateAnnouncement
   ,deleteAnnouncement
   ,markAnnouncementRead
+  ,listAllRequests
+  ,getAttendanceChartData
+  ,getSalaryChartData
+  ,markAutoAbsences
 } from './dbStore.js';
 
 export const app = express();
@@ -1253,21 +1257,49 @@ apiRouter.get('/stats/office', async (req, res) => {
 });
 
 apiRouter.get('/stats/attendance-chart', async (req, res) => {
-  res.json([
-    { date: 'الأحد', present: 12, absent: 1, late: 0 },
-    { date: 'الإثنين', present: 14, absent: 0, late: 1 },
-    { date: 'الثلاثاء', present: 15, absent: 0, late: 0 },
-    { date: 'الأربعاء', present: 13, absent: 2, late: 0 },
-    { date: 'الخميس', present: 15, absent: 0, late: 0 }
-  ]);
+  const days = Number(req.query.days || 7);
+  const data = await getAttendanceChartData(Math.min(Math.max(days, 3), 90));
+  res.json(data);
 });
 
 apiRouter.get('/stats/salary-chart', async (req, res) => {
-  res.json([
-    { month: 'يناير', totalSalary: 450000 },
-    { month: 'فبراير', totalSalary: 480000 },
-    { month: 'مارس', totalSalary: 510000 }
-  ]);
+  const data = await getSalaryChartData();
+  res.json(data);
+});
+
+// Admin: manually trigger the auto-absence marker
+apiRouter.post('/admin/mark-absences', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ success: false, message: 'يجب تسجيل الدخول كمسؤول' });
+  try {
+    const count = await markAutoAbsences(Number(req.query.days || 30));
+    return res.json({ success: true, markedCount: count, message: `تم تسجيل ${count} غياب تلقائي` });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'فشل التحديث' });
+  }
+});
+
+// Unified requests endpoint with optional status filter
+apiRouter.get('/requests', async (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+  const list = await listAllRequests({ status, employeeId });
+  return res.json(list);
+});
+
+apiRouter.get('/requests/pending', async (req, res) => {
+  const list = await listAllRequests({ status: 'pending' });
+  return res.json(list);
+});
+
+apiRouter.get('/requests/approved', async (req, res) => {
+  const list = await listAllRequests({ status: 'approved' });
+  return res.json(list);
+});
+
+apiRouter.get('/requests/rejected', async (req, res) => {
+  const list = await listAllRequests({ status: 'rejected' });
+  return res.json(list);
 });
 
 app.use('/api', apiRouter);
@@ -1608,7 +1640,7 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
     return res.status(409).json({ code: 'already_checked_out', message: 'لا يوجد تسجيل حضور مفتوح اليوم' });
   }
 
-  // GPS distance check — 5 metres radius enforced
+  // GPS distance check — use office-configured geofence radius (default 150 m)
   const empLat = parseFloat(String(req.body?.latitude ?? ''));
   const empLng = parseFloat(String(req.body?.longitude ?? ''));
   if (isNaN(empLat) || isNaN(empLng)) {
@@ -1616,12 +1648,14 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
   }
   const officeLat = parseFloat(String(office.latitude || '0'));
   const officeLng = parseFloat(String(office.longitude || '0'));
+  const geofenceRadius = Number(office.geofenceRadiusMeters || 150);
   const distM = haversineMeters(empLat, empLng, officeLat, officeLng);
-  if (distM > 5) {
+  if (distM > geofenceRadius) {
     return res.status(403).json({
       code: 'out_of_range',
-      message: `أنت خارج نطاق المكتب (${Math.round(distM)} متر). الحد المسموح: 5 أمتار`,
-      distance: Math.round(distM)
+      message: `أنت خارج نطاق المكتب (${Math.round(distM)} متر). الحد المسموح: ${geofenceRadius} متر`,
+      distance: Math.round(distM),
+      radius: geofenceRadius,
     });
   }
 
@@ -2070,6 +2104,18 @@ if (fs.existsSync(frontendDist)) {
   });
 }
 
+// ─── Auto-absence scheduler ────────────────────────────────────────────────
+// Marks employees absent for every past workday they missed (no check-in),
+// respecting each employee's individual restDays list. Runs once at startup
+// and then every hour so short server restarts don't miss a day.
+async function autoMarkAbsentees() {
+  try {
+    await markAutoAbsences();
+  } catch (err) {
+    console.warn('[autoMarkAbsentees] error:', err instanceof Error ? err.message : err);
+  }
+}
+
 // ─── Startup initialisation ───────────────────────────────────────────────
 // Seed offices with real coordinates and create a default admin if none exists.
 (async () => {
@@ -2079,7 +2125,17 @@ if (fs.existsSync(frontendDist)) {
     console.warn('[startup] seedOfficialOffices error:', e);
   }
 
+  // Run auto-absence immediately on startup, then every hour
+  try {
+    await autoMarkAbsentees();
+  } catch (e) {
+    console.warn('[startup] autoMarkAbsentees error:', e);
+  }
+
 })();
+
+// Schedule auto-absence every hour (3600 seconds)
+setInterval(() => { autoMarkAbsentees().catch(() => {}); }, 3600 * 1000);
 
 // Haversine distance in metres between two GPS coordinates
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {

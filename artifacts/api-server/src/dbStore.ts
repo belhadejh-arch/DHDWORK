@@ -360,17 +360,37 @@ export async function getEmployeeById(id: number) {
 export async function listEmployees(queryFilter?: any) {
   try {
     const db = getDb();
-    const allEmps = await db.select().from(employees).orderBy(asc(employees.id));
     const allOffices = await db.select().from(offices);
     const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
+
+    // Default: return only active, non-deleted employees.
+    // Pass queryFilter.all='1' or queryFilter.includeAll=true to bypass this.
+    const includeAll = queryFilter?.all === '1' || queryFilter?.all === true || queryFilter?.includeAll;
+    const statusFilter = queryFilter?.status;
+
+    let allEmps: any[];
+    if (includeAll) {
+      allEmps = await db.select().from(employees).orderBy(asc(employees.id));
+    } else if (statusFilter === 'inactive' || statusFilter === 'former') {
+      allEmps = await db.select().from(employees)
+        .where(or(eq(employees.isActive, false), sql`${employees.deletedAt} IS NOT NULL`))
+        .orderBy(asc(employees.id));
+    } else {
+      // Default: active employees only
+      allEmps = await db.select().from(employees)
+        .where(and(eq(employees.isActive, true), isNull(employees.deletedAt)))
+        .orderBy(asc(employees.id));
+    }
 
     let result = allEmps.map((e: any) => formatEmployee(e, officeMap));
 
     if (queryFilter?.officeId) {
       result = result.filter((e: any) => Number(e.officeId) === Number(queryFilter.officeId));
     }
-    if (queryFilter?.status) {
-      result = result.filter((e: any) => e.status === queryFilter.status);
+    // Status is already handled in the SQL query above, but keep the in-memory filter
+    // for 'active' when includeAll is set
+    if (includeAll && statusFilter && statusFilter !== 'inactive' && statusFilter !== 'former') {
+      result = result.filter((e: any) => e.status === statusFilter);
     }
     if (queryFilter?.search) {
       const q = String(queryFilter.search).toLowerCase();
@@ -430,7 +450,9 @@ export async function updateEmployee(id: number, data: any) {
       if (data.lastName !== undefined) updateData.lastName = data.lastName;
       if (data.email !== undefined) updateData.email = data.email;
       if (data.phone !== undefined) updateData.phone = data.phone;
-      if (data.role !== undefined || data.position !== undefined) updateData.position = data.position || data.role;
+      if (data.role !== undefined || data.position !== undefined) {
+        updateData.position = data.position || data.role;
+      }
       if (data.officeId !== undefined) updateData.officeId = Number(data.officeId);
       if (data.baseSalary !== undefined) updateData.baseSalary = String(data.baseSalary);
       if (data.status !== undefined) updateData.isActive = data.status === "active";
@@ -438,11 +460,25 @@ export async function updateEmployee(id: number, data: any) {
       if (data.restDays !== undefined) {
         updateData.restDays = typeof data.restDays === "string" ? data.restDays : JSON.stringify(data.restDays);
       }
-      if (data.qrCodeSecret !== undefined || data.qrCodeData !== undefined) updateData.qrCodeData = data.qrCodeData || data.qrCodeSecret;
+      if (data.qrCodeSecret !== undefined || data.qrCodeData !== undefined) {
+        updateData.qrCodeData = data.qrCodeData || data.qrCodeSecret;
+      }
+      // Additional fields that were previously missing
+      if (data.serialNumber !== undefined) updateData.serialNumber = data.serialNumber;
+      if (data.workStartTime !== undefined) updateData.workStartTime = data.workStartTime;
+      if (data.workEndTime !== undefined) updateData.workEndTime = data.workEndTime;
+      if (data.hireDate !== undefined) updateData.hireDate = data.hireDate;
+      if (data.joinedAt !== undefined) updateData.hireDate = data.joinedAt;
+      if (data.paymentDay !== undefined) updateData.paymentDay = Number(data.paymentDay);
+      if (data.isUnrestricted !== undefined) updateData.isUnrestricted = Boolean(data.isUnrestricted);
+      if (data.passwordHash !== undefined) updateData.passwordHash = data.passwordHash;
+      if (data.pinCode !== undefined) updateData.passwordHash = data.pinCode;
 
       const [updated] = await db.update(employees).set(updateData).where(eq(employees.id, Number(id))).returning();
       if (updated) {
-        return formatEmployee(updated);
+        const allOffices = await db.select().from(offices);
+        const officeMap = new Map<number, string>(allOffices.map((o: any) => [Number(o.id), o.name] as [number, string]));
+        return formatEmployee(updated, officeMap);
       }
     }
   } catch (err) {
@@ -1986,23 +2022,215 @@ export async function markAnnouncementRead(id: number, employeeId: number) {
   return row || null;
 }
 
+// Auto-absence: mark employees absent for past workdays they missed
+export async function markAutoAbsences(lookbackDays = 30) {
+  const db = getDb();
+  if (!db) return 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().slice(0, 10);
+
+  const since = new Date(today);
+  since.setDate(since.getDate() - lookbackDays);
+  const sinceStr = since.toISOString().slice(0, 10);
+
+  // Load all active employees
+  const allEmps = await db.select().from(employees)
+    .where(and(eq(employees.isActive, true), isNull(employees.deletedAt)));
+  if (!allEmps.length) return 0;
+
+  // Load existing attendance since lookback date (date column is a text/date field)
+  const existingAtt = await db.select({ employeeId: attendance.employeeId, date: attendance.date })
+    .from(attendance)
+    .where(sql`${attendance.date} >= ${sinceStr}`);
+
+  const attSet = new Set<string>(
+    existingAtt.map((a: any) => `${a.employeeId}:${String(a.date || '').slice(0, 10)}`)
+  );
+
+  const REST_DAY_MAP: Record<string, number> = {
+    'sunday': 0, 'monday': 1, 'tuesday': 2, 'wednesday': 3,
+    'thursday': 4, 'friday': 5, 'saturday': 6,
+    'الأحد': 0, 'الإثنين': 1, 'الثلاثاء': 2, 'الأربعاء': 3,
+    'الخميس': 4, 'الجمعة': 5, 'السبت': 6,
+  };
+
+  const inserts: any[] = [];
+  const now = new Date();
+
+  for (const emp of allEmps) {
+    // Parse rest days — stored as JSON array e.g. ["Friday","Saturday"]
+    let restDayNums: number[] = [];
+    try {
+      const parsed = typeof emp.restDays === 'string' ? JSON.parse(emp.restDays) : (emp.restDays ?? []);
+      if (Array.isArray(parsed)) {
+        restDayNums = parsed
+          .map((d: any) => REST_DAY_MAP[String(d).trim().toLowerCase()] ?? -1)
+          .filter((n: number) => n >= 0);
+      }
+    } catch {}
+    // Default: Friday + Saturday (common Algerian work week)
+    if (!restDayNums.length) restDayNums = [5, 6];
+
+    for (let d = 0; d < lookbackDays; d++) {
+      const date = new Date(since);
+      date.setDate(date.getDate() + d);
+      const dateStr = date.toISOString().slice(0, 10);
+      if (dateStr >= todayStr) break; // never mark today absent
+      if (restDayNums.includes(date.getDay())) continue; // skip rest days
+
+      const key = `${emp.id}:${dateStr}`;
+      if (attSet.has(key)) continue; // already has a record for this day
+
+      attSet.add(key); // prevent duplication within this run
+      inserts.push({
+        employeeId: emp.id,
+        officeId: emp.officeId || null,
+        date: dateStr,
+        isAbsent: true,
+        notes: 'غياب تلقائي',
+        createdAt: now,
+      });
+    }
+  }
+
+  if (inserts.length) {
+    // Insert in batches; the unique index on (employeeId, date) prevents duplicates
+    for (let i = 0; i < inserts.length; i += 100) {
+      await db.insert(attendance).values(inserts.slice(i, i + 100)).onConflictDoNothing();
+    }
+    console.log(`[markAutoAbsences] Inserted ${inserts.length} absent records`);
+  }
+  return inserts.length;
+}
+
+// Unified requests listing (advances + leave + vacation) with optional status filter
+export async function listAllRequests(opts?: { status?: string; employeeId?: number }) {
+  const db = getDb();
+  const [advRows, leaveRows, vacRows] = await Promise.all([
+    db.select({ request: advances, employee: employees, office: offices })
+      .from(advances)
+      .leftJoin(employees, eq(employees.id, advances.employeeId))
+      .leftJoin(offices, eq(offices.id, employees.officeId))
+      .where(opts?.employeeId ? eq(advances.employeeId, Number(opts.employeeId)) : undefined)
+      .orderBy(desc(advances.requestedAt), desc(advances.id)),
+    db.select({ request: leaveRequests, employee: employees, office: offices })
+      .from(leaveRequests)
+      .leftJoin(employees, eq(employees.id, leaveRequests.employeeId))
+      .leftJoin(offices, eq(offices.id, employees.officeId))
+      .where(opts?.employeeId ? eq(leaveRequests.employeeId, Number(opts.employeeId)) : undefined)
+      .orderBy(desc(leaveRequests.requestedAt), desc(leaveRequests.id)),
+    db.select({ request: vacationRequests, employee: employees, office: offices })
+      .from(vacationRequests)
+      .leftJoin(employees, eq(employees.id, vacationRequests.employeeId))
+      .leftJoin(offices, eq(offices.id, employees.officeId))
+      .where(opts?.employeeId ? eq(vacationRequests.employeeId, Number(opts.employeeId)) : undefined)
+      .orderBy(desc(vacationRequests.requestedAt), desc(vacationRequests.id)),
+  ]);
+
+  const toItem = (row: any, type: string) => ({
+    ...formatRequestRecord(row.request, row.employee, row.office),
+    requestType: type,
+  });
+
+  let all = [
+    ...advRows.map((r: any) => toItem(r, 'advance')),
+    ...leaveRows.map((r: any) => toItem(r, 'leave')),
+    ...vacRows.map((r: any) => toItem(r, 'vacation')),
+  ];
+
+  if (opts?.status && opts.status !== 'all') {
+    all = all.filter((r) => r.status === opts.status);
+  }
+
+  // Sort by requestedAt descending
+  return all.sort((a: any, b: any) => {
+    const aTime = a.requestedAt ? new Date(a.requestedAt).getTime() : 0;
+    const bTime = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
+    return bTime - aTime || Number(b.id) - Number(a.id);
+  });
+}
+
 // Stats
 export async function getDashboardStats() {
-  const employeesList = await listEmployees();
-  const officesList = await listOffices();
-  const attendanceList = await listAttendance();
-  const advancesList = await listAdvances();
+  const db = getDb();
+  const [employeesList, officesList, advancesList] = await Promise.all([
+    listEmployees(), // active only
+    listOffices(),
+    listAdvances(),
+  ]);
 
   const totalEmployees = employeesList.length;
   const activeOffices = officesList.filter((o: any) => o.active).length;
   const today = new Date().toISOString().split("T")[0];
-  const presentToday = attendanceList.filter((a: any) => String(a.date).startsWith(today) && (a.status === "present" || !a.isAbsent)).length;
+
+  // Count today's present employees directly from DB
+  const todayAttendance = await db.select().from(attendance)
+    .where(and(eq(attendance.date, today), eq(attendance.isAbsent, false)));
+  const presentToday = todayAttendance.filter((a: any) => a.checkInTime != null).length;
   const pendingAdvances = advancesList.filter((a: any) => a.status === "pending").length;
+
+  // Count pending leave/vacation requests too
+  const [leaveRows, vacRows] = await Promise.all([
+    db.select().from(leaveRequests).where(eq(leaveRequests.status, "pending")),
+    db.select().from(vacationRequests).where(eq(vacationRequests.status, "pending")),
+  ]);
+  const pendingRequests = pendingAdvances + leaveRows.length + vacRows.length;
 
   return {
     totalEmployees,
     presentToday,
     activeOffices,
-    pendingAdvances
+    pendingAdvances,
+    pendingRequests,
   };
+}
+
+// Real attendance chart data for the past N days
+export async function getAttendanceChartData(days = 7) {
+  const db = getDb();
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().slice(0, 10);
+  const rows = await db.select().from(attendance)
+    .where(sql`${attendance.date} >= ${sinceStr}`)
+    .orderBy(asc(attendance.date));
+
+  const byDate: Record<string, { date: string; present: number; absent: number; late: number }> = {};
+  for (const row of rows) {
+    const d = String(row.date || '').slice(0, 10);
+    if (!d) continue;
+    if (!byDate[d]) byDate[d] = { date: d, present: 0, absent: 0, late: 0 };
+    if (row.isAbsent) {
+      byDate[d].absent++;
+    } else if (row.checkInTime) {
+      byDate[d].present++;
+      if (Number(row.lateMinutes || 0) > 0) byDate[d].late++;
+    }
+  }
+  return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Real salary chart data (last 6 months)
+export async function getSalaryChartData() {
+  const db = getDb();
+  const rows = await db.select().from(salaries).orderBy(asc(salaries.year), asc(salaries.month));
+  const monthNames: Record<string, string> = {
+    '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل',
+    '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس',
+    '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر',
+  };
+  const byPeriod: Record<string, { month: string; totalSalary: number }> = {};
+  for (const row of rows) {
+    const key = `${row.year}-${String(row.month).padStart(2, '0')}`;
+    if (!byPeriod[key]) {
+      byPeriod[key] = {
+        month: `${monthNames[String(row.month).padStart(2, '0')] || row.month} ${row.year}`,
+        totalSalary: 0,
+      };
+    }
+    byPeriod[key].totalSalary += Number(row.finalSalary || row.baseSalary || 0);
+  }
+  return Object.values(byPeriod).slice(-6);
 }

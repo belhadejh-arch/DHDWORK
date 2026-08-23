@@ -2,4 +2,5 @@
 - [DHD proxy workflow](dhd-proxy-workflow.md) — the API workflow must listen on the artifact proxy's configured port for frontend API calls to work.
 - [Announcement schema compatibility](announcement-schema-compatibility.md) — announcement tables may predate the current Drizzle model; preserve their existing required timing and recipient columns.
 - [DHD Web Push](dhd-web-push.md) — external notifications require VAPID secrets; subscriptions are persisted per employee/admin device.
+- [DHD auto-absence](dhd-auto-absence.md) — markAutoAbsences() runs at startup + hourly; respects restDays; safe to re-run via POST /api/admin/mark-absences.
 - [DHD PDF opening](dhd-pdf-opening.md) — PDF actions must fetch a validated blob or use a short-lived token URL so auth headers and popup blockers do not break opening.
