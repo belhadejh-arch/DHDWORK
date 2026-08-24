@@ -76,11 +76,17 @@
     return /^\/settings\/?$/.test(window.location.pathname);
   }
 
+  function getSettingsContent() {
+    const main = document.querySelector('main, [role="main"]');
+    if (!main) return null;
+    return main.querySelector('.max-w-4xl.space-y-6, .space-y-6.max-w-4xl');
+  }
+
   async function fetchNotifications(endpoint) {
     try {
       const response = await window.fetch(endpoint, {
         credentials: 'include',
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...pushAuthHeaders() },
       });
       if (!response.ok) return;
       const data = await response.json();
@@ -102,10 +108,10 @@
   }
 
   async function pollNotifications() {
-    await Promise.all([
-      fetchNotifications('/api/notifications'),
-      fetchNotifications('/api/employee/notifications'),
-    ]);
+    var employeeToken = localStorage.getItem('dhd_employee_token') || localStorage.getItem('employee_token');
+    var adminToken = localStorage.getItem('dhd_admin_token');
+    if (!employeeToken && !adminToken) return;
+    await fetchNotifications(employeeToken ? '/api/employee/notifications' : '/api/notifications');
     notificationBaselineReady = true;
   }
 
@@ -174,8 +180,10 @@
   function addSoundSetting() {
     if (!isSettingsPage()) return;
     if (document.querySelector('.dhd-sound-setting')) return;
-    const host = document.querySelector('main, [role="main"], .container, body');
+    const host = getSettingsContent();
     if (!host) return;
+    const accountPanel = host.querySelector('.dhd-admin-account-card--settings');
+    if (!accountPanel) return;
     const panel = document.createElement('section');
     panel.className = 'dhd-sound-setting';
     panel.dir = 'rtl';
@@ -188,7 +196,11 @@
       localStorage.setItem(SETTING_KEY, String(enabled));
     });
     addPushSetting();
-    host.prepend(panel);
+    if (accountPanel.nextSibling) {
+      host.insertBefore(panel, accountPanel.nextSibling);
+    } else {
+      host.appendChild(panel);
+    }
   }
 
   // Guard repeated attendance clicks even in the pre-built employee bundle.

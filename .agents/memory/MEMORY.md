@@ -1,4 +1,5 @@
 - [DHD identity data](dhd-identity-data.md) — PostgreSQL is authoritative for employees, offices, admins, and strict QR identity matching.
+- [DHD session security](dhd-session-security.md) — identity sessions must be random, persisted, expiring, and revalidated against active accounts.
 - [DHD proxy workflow](dhd-proxy-workflow.md) — the API workflow must listen on the artifact proxy's configured port for frontend API calls to work.
 - [Announcement schema compatibility](announcement-schema-compatibility.md) — announcement tables may predate the current Drizzle model; preserve their existing required timing and recipient columns.
 - [DHD Web Push](dhd-web-push.md) — external notifications require VAPID secrets; subscriptions are persisted per employee/admin device.

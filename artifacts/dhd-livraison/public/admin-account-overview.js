@@ -22,6 +22,23 @@
     return token ? { Authorization: 'Bearer ' + token, Accept: 'application/json' } : { Accept: 'application/json' };
   }
 
+  function authenticatedFetch(url, options) {
+    var requestOptions = Object.assign({}, options || {}, {
+      credentials: 'include',
+      headers: Object.assign({}, headers(), options && options.headers ? options.headers : {})
+    });
+    return fetch(url, requestOptions).then(function (response) {
+      if ((response.status !== 401 && response.status !== 403) || !requestOptions.headers.Authorization) {
+        return response;
+      }
+      var cookieOptions = Object.assign({}, requestOptions, {
+        headers: Object.assign({}, requestOptions.headers)
+      });
+      delete cookieOptions.headers.Authorization;
+      return fetch(url, cookieOptions);
+    });
+  }
+
   function escapeHtml(value) {
     return String(value == null || value === '' ? '—' : value)
       .replace(/&/g, '&amp;')
@@ -33,7 +50,7 @@
 
   function fetchAccount() {
     if (account) return Promise.resolve(account);
-    return fetch('/api/auth/me', { credentials: 'include', headers: headers() })
+    return authenticatedFetch('/api/auth/me')
       .then(function (response) { return response.ok ? response.json() : null; })
       .then(function (data) {
         account = data && data.userType === 'admin' ? data.admin : null;
@@ -42,8 +59,28 @@
       .catch(function () { return null; });
   }
 
-  function getHost() {
+  function getSettingsContent() {
+    var main = document.querySelector('main, [role="main"]');
+    if (!main) return null;
+    return main.querySelector('.max-w-4xl.space-y-6, .space-y-6.max-w-4xl');
+  }
+
+  function getDashboardHost() {
     return document.querySelector('main > div.flex-1, main [class*="overflow-y-auto"], main') || document.querySelector('main');
+  }
+
+  function placeSettingsCard(card) {
+    var content = getSettingsContent();
+    if (!content) return false;
+    var firstSettingsCard = Array.from(content.children).find(function (child, index) {
+      return index > 0 && child.querySelector && child.querySelector('form, [class*="CardContent"]');
+    });
+    if (firstSettingsCard && firstSettingsCard.nextSibling) {
+      content.insertBefore(card, firstSettingsCard.nextSibling);
+    } else {
+      content.appendChild(card);
+    }
+    return true;
   }
 
   function buildDashboardCard(admin) {
@@ -92,10 +129,8 @@
       if (!window.confirm('سيتم إلغاء رمز QR القديم ولن يعمل بعد الآن. هل تريد المتابعة؟')) return;
       button.disabled = true;
       button.textContent = 'جارٍ التوليد…';
-      fetch('/api/admins/' + encodeURIComponent(admin.id) + '/qrcode/regenerate', {
+      authenticatedFetch('/api/admins/' + encodeURIComponent(admin.id) + '/qrcode/regenerate', {
         method: 'POST',
-        credentials: 'include',
-        headers: headers()
       }).then(function (response) {
         if (!response.ok) throw new Error('تعذر توليد الرمز');
         return loadAdminQr(section, admin);
@@ -116,14 +151,21 @@
     var container = section.querySelector('[data-admin-qr-image]');
     if (!container) return Promise.resolve();
     container.innerHTML = '<span>جارٍ تحميل رمز QR…</span>';
-    return fetch('/api/admins/' + encodeURIComponent(admin.id) + '/qrcode.svg', {
-      credentials: 'include',
-      headers: headers()
+    return authenticatedFetch('/api/admins/' + encodeURIComponent(admin.id) + '/qrcode.svg?ts=' + Date.now(), {
+      headers: { Accept: 'image/svg+xml' }
     }).then(function (response) {
-      if (!response.ok) throw new Error('تعذر تحميل رمز QR');
-      return response.text();
-    }).then(function (svg) {
-      container.innerHTML = svg;
+      if (!response.ok || !String(response.headers.get('content-type') || '').includes('image/svg+xml')) {
+        throw new Error('تعذر تحميل رمز QR');
+      }
+      return response.blob();
+    }).then(function (blob) {
+      var image = new Image();
+      image.alt = 'رمز QR الخاص بالمسؤول';
+      image.width = 220;
+      image.height = 220;
+      image.src = URL.createObjectURL(blob);
+      image.addEventListener('load', function () { URL.revokeObjectURL(image.src); }, { once: true });
+      container.replaceChildren(image);
     }).catch(function () {
       container.innerHTML = '<span class="is-error">تعذر تحميل رمز QR. أعد تسجيل الدخول ثم حاول مرة أخرى.</span>';
     });
@@ -131,12 +173,15 @@
 
   function mount() {
     if ((!isDashboard() && !isSettings()) || document.querySelector('.dhd-admin-account-card')) return;
-    var host = getHost();
-    if (!host) return;
     fetchAccount().then(function (admin) {
       if (!admin || document.querySelector('.dhd-admin-account-card')) return;
       var card = isSettings() ? buildSettingsCard(admin) : buildDashboardCard(admin);
-      host.prepend(card);
+      if (isSettings()) {
+        placeSettingsCard(card);
+      } else {
+        var host = getDashboardHost();
+        if (host) host.prepend(card);
+      }
     });
   }
 

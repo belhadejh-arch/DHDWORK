@@ -1,5 +1,5 @@
-import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins, announcements, announcementRecipients, announcementReads, pushSubscriptions } from "../../../lib/db/src/index.js";
-import { eq, and, asc, desc, sql, like, or, isNull } from "drizzle-orm";
+import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins, announcements, announcementRecipients, announcementReads, pushSubscriptions, sessions } from "../../../lib/db/src/index.js";
+import { eq, and, asc, desc, sql, like, or, isNull, gt } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -132,7 +132,6 @@ function formatEmployee(e: any, officeMap?: Map<number, string>) {
     isActive: isAct,
     qrCodeSecret: e.qrCodeData || e.qrCodeSecret || null,
     qrCodeData: e.qrCodeData || e.qrCodeSecret || null,
-    pinCode: e.pinCode || e.passwordHash || null,
     restDays: e.restDays || null,
     joinedAt: e.hireDate || e.joinedAt || null,
     createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null
@@ -194,7 +193,9 @@ function formatAttendanceRecord(record: any, employee?: any, office?: any, reque
 
 function employeeHasRestDay(employee: any, dateValue: string) {
   const raw = employee?.restDays;
-  if (!raw) return false;
+  const date = new Date(`${dateValue}T12:00:00Z`);
+  const weekday = date.getUTCDay();
+  if (!raw) return weekday === 5 || weekday === 6;
   let values: unknown[] = [];
   try {
     const parsed = JSON.parse(String(raw));
@@ -202,26 +203,38 @@ function employeeHasRestDay(employee: any, dateValue: string) {
   } catch {
     values = String(raw).split(",");
   }
-  const date = new Date(`${dateValue}T12:00:00Z`);
-  const weekday = date.getUTCDay();
   const names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const arabicNames = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
   return values.some((value) => {
     const normalized = String(value).trim().toLowerCase();
     return normalized === String(weekday) || normalized === names[weekday] ||
+      normalized === arabicNames[weekday].toLowerCase() ||
       (weekday === 0 && ["الأحد", "الاحد"].includes(normalized)) ||
-      (weekday === 5 && ["الجمعة"].includes(normalized)) ||
-      (weekday === 6 && ["السبت"].includes(normalized));
+      (weekday === 1 && ["الإثنين", "الاثنين"].includes(normalized));
   });
 }
 
 async function syncDailyAbsences(db: any, dateFilter: string) {
   const activeEmployees = await db.select().from(employees).where(eq(employees.isActive, true));
+  const [approvedLeaves, approvedVacations] = await Promise.all([
+    db.select().from(leaveRequests).where(eq(leaveRequests.status, "approved")),
+    db.select().from(vacationRequests).where(eq(vacationRequests.status, "approved")),
+  ]);
+  const onApprovedTimeOff = (employeeId: number) => [...approvedLeaves, ...approvedVacations].some((request: any) =>
+    Number(request.employeeId) === Number(employeeId) &&
+    String(request.startDate || "") <= dateFilter &&
+    String(request.endDate || request.startDate || "") >= dateFilter,
+  );
   const existing = await db.select({ employeeId: attendance.employeeId })
     .from(attendance).where(eq(attendance.date, dateFilter));
   const existingIds = new Set(existing.map((row: any) => Number(row.employeeId)));
-  const missing = activeEmployees.filter((employee: any) =>
-    !existingIds.has(Number(employee.id)) && !employeeHasRestDay(employee, dateFilter),
-  );
+  const missing = activeEmployees.filter((employee: any) => {
+    const hireDate = String(employee.hireDate || "").slice(0, 10);
+    return !existingIds.has(Number(employee.id)) &&
+      (!hireDate || dateFilter >= hireDate) &&
+      !employeeHasRestDay(employee, dateFilter) &&
+      !onApprovedTimeOff(Number(employee.id));
+  });
   if (!missing.length) return;
   await db.insert(attendance).values(missing.map((employee: any) => ({
     employeeId: Number(employee.id),
@@ -275,6 +288,32 @@ export async function getAdminByQrSecret(secret: string) {
   const db = getDb();
   const result = await db.select().from(admins).where(eq(admins.qrCodeData, value));
   return result[0] || null;
+}
+
+export async function createSession(userType: "admin" | "employee", userId: number) {
+  const db = getDb();
+  const token = crypto.randomBytes(32).toString("base64url");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  await db.insert(sessions).values({ token, userType, userId: Number(userId), createdAt: now, expiresAt });
+  return token;
+}
+
+export async function getSession(token: string) {
+  if (!token) return null;
+  const db = getDb();
+  const rows = await db.select().from(sessions).where(and(
+    eq(sessions.token, token),
+    gt(sessions.expiresAt, new Date()),
+  )).limit(1);
+  return rows[0] || null;
+}
+
+export async function deleteSession(token: string) {
+  if (!token) return false;
+  const db = getDb();
+  const deleted = await db.delete(sessions).where(eq(sessions.token, token)).returning({ id: sessions.id });
+  return deleted.length > 0;
 }
 
 export async function getEmployeeByCode(code: string) {
@@ -409,18 +448,25 @@ export async function listEmployees(queryFilter?: any) {
 }
 
 export async function createEmployee(data: any) {
-  const code = data.employeeCode || data.serialNumber || `EMP-${Math.floor(100000 + Math.random() * 900000)}`;
-  const qr = data.qrCodeSecret || data.qrCodeData || `dhd-auth-${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`;
+  const code = data.employeeCode || data.serialNumber || `EMP-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+  const qr = data.qrCodeSecret || data.qrCodeData || `dhd-auth-${crypto.randomBytes(24).toString("base64url")}`;
 
   try {
     const db = getDb();
     if (db) {
+      const officeId = Number(data.officeId);
+      if (!Number.isInteger(officeId) || officeId <= 0) throw new Error("يجب اختيار مكتب صالح للموظف");
+      const office = await db.select({ id: offices.id }).from(offices).where(eq(offices.id, officeId)).limit(1);
+      if (!office[0]) throw new Error("المكتب المحدد غير موجود");
+      if (!String(data.firstName || "").trim() || !String(data.lastName || "").trim()) {
+        throw new Error("اسم الموظف مطلوب");
+      }
       const [newEmp] = await db
         .insert(employees)
         .values({
-          officeId: data.officeId ? Number(data.officeId) : 1,
-          firstName: data.firstName,
-          lastName: data.lastName,
+          officeId,
+          firstName: String(data.firstName).trim(),
+          lastName: String(data.lastName).trim(),
           email: data.email || null,
           phone: data.phone || null,
           position: data.role || data.position || "سائق توصيل",
@@ -453,10 +499,18 @@ export async function updateEmployee(id: number, data: any) {
       if (data.role !== undefined || data.position !== undefined) {
         updateData.position = data.position || data.role;
       }
-      if (data.officeId !== undefined) updateData.officeId = Number(data.officeId);
+      if (data.officeId !== undefined) {
+        const officeId = Number(data.officeId);
+        if (!Number.isInteger(officeId) || officeId <= 0) throw new Error("المكتب المحدد غير صالح");
+        const office = await db.select({ id: offices.id }).from(offices).where(eq(offices.id, officeId)).limit(1);
+        if (!office[0]) throw new Error("المكتب المحدد غير موجود");
+        updateData.officeId = officeId;
+      }
       if (data.baseSalary !== undefined) updateData.baseSalary = String(data.baseSalary);
       if (data.status !== undefined) updateData.isActive = data.status === "active";
-      if (data.isActive !== undefined) updateData.isActive = Boolean(data.isActive);
+      if (data.isActive !== undefined) {
+        updateData.isActive = data.isActive === true || data.isActive === "true" || data.isActive === 1 || data.isActive === "1";
+      }
       if (data.restDays !== undefined) {
         updateData.restDays = typeof data.restDays === "string" ? data.restDays : JSON.stringify(data.restDays);
       }
@@ -471,9 +525,6 @@ export async function updateEmployee(id: number, data: any) {
       if (data.joinedAt !== undefined) updateData.hireDate = data.joinedAt;
       if (data.paymentDay !== undefined) updateData.paymentDay = Number(data.paymentDay);
       if (data.isUnrestricted !== undefined) updateData.isUnrestricted = Boolean(data.isUnrestricted);
-      if (data.passwordHash !== undefined) updateData.passwordHash = data.passwordHash;
-      if (data.pinCode !== undefined) updateData.passwordHash = data.pinCode;
-
       const [updated] = await db.update(employees).set(updateData).where(eq(employees.id, Number(id))).returning();
       if (updated) {
         const allOffices = await db.select().from(offices);
@@ -491,8 +542,11 @@ export async function deleteEmployee(id: number, reason = "Deleted by admin") {
   try {
     const db = getDb();
     if (db) {
-      await db.update(employees).set({ isActive: false, deletedAt: new Date(), deletionReason: reason }).where(eq(employees.id, Number(id)));
-      return true;
+      const updated = await db.update(employees)
+        .set({ isActive: false, deletedAt: new Date(), deletionReason: reason, updatedAt: new Date() })
+        .where(eq(employees.id, Number(id)))
+        .returning({ id: employees.id });
+      return updated.length > 0;
     }
   } catch (err) {
     throw err;
@@ -671,7 +725,8 @@ export async function getSalaryPdfData(salaryId: number) {
     return normalized.startsWith(monthPrefix);
   };
   const monthViolations = allViolations.filter((v: any) =>
-    Number(v.salaryId) === Number(salary.id) || inSalaryPeriod(v.violationDate || v.createdAt)
+    Number(v.salaryId) === Number(salary.id) ||
+    (v.salaryId == null && inSalaryPeriod(v.violationDate || v.createdAt))
   );
   const approvedAdvances = allAdvances.filter((a: any) =>
     a.status === "approved" &&
@@ -679,7 +734,10 @@ export async function getSalaryPdfData(salaryId: number) {
   );
   const monthAttendance = allAttendance.filter((a: any) => String(a.date || "").startsWith(monthPrefix));
   const monthBonuses = allBonuses.filter((b: any) =>
-    Number(b.salaryId) === Number(salary.id) || inSalaryPeriod(b.date || b.createdAt)
+    (b.status === 'approved' || b.status == null) && (
+      Number(b.salaryId) === Number(salary.id) ||
+      (b.salaryId == null && inSalaryPeriod(b.date || b.createdAt))
+    )
   );
 
   const attendancePresentDays = monthAttendance.filter((a: any) => !a.isAbsent && (a.checkInTime || a.checkOutTime)).length;
@@ -740,6 +798,39 @@ export async function getSalaryPdfData(salaryId: number) {
   };
 }
 
+async function refreshOpenSalaryCalculations(employeeId: number) {
+  const db = getDb();
+  const records = await db.select().from(salaries).where(eq(salaries.employeeId, Number(employeeId)));
+  for (const record of records) {
+    if (record.status === "paid") continue;
+    await db.update(salaries).set({
+      finalSalary: null,
+      violationDeductions: null,
+      advanceDeductions: null,
+      lateDeductions: null,
+      overtimeBonus: null,
+      bonuses: null,
+      otherDeductions: null,
+    }).where(eq(salaries.id, Number(record.id)));
+    const calculation = await getSalaryPdfData(Number(record.id));
+    const summary = calculation?.summary;
+    if (!summary) continue;
+    await db.update(salaries).set({
+      presentDays: Number(summary.presentDays || 0),
+      absentDays: Number(summary.absentDays || 0),
+      workedHours: String(Number(summary.workedHours || 0)),
+      overtimeHours: String(Number(summary.overtimeHours || 0)),
+      overtimeBonus: String(Number(summary.overtimeBonus || 0)),
+      lateDeductions: String(Number(summary.lateDeduction || 0)),
+      advanceDeductions: String(Number(summary.advanceTotal || 0)),
+      violationDeductions: String(Number(summary.violationTotal || 0)),
+      bonuses: String(Number(summary.bonusTotal || 0)),
+      otherDeductions: String(Number(summary.otherDeductions || 0)),
+      finalSalary: String(Number(summary.finalSalary || 0)),
+    }).where(eq(salaries.id, Number(record.id)));
+  }
+}
+
 export async function createOffice(data: any) {
   try {
     const db = getDb();
@@ -751,7 +842,7 @@ export async function createOffice(data: any) {
           address: data.address || null,
           latitude: data.latitude ? String(data.latitude) : null,
           longitude: data.longitude ? String(data.longitude) : null,
-          qrCodeData: `DHD-OFFICE-${Math.floor(Math.random() * 10000)}`
+          qrCodeData: `DHD-OFFICE-${crypto.randomBytes(24).toString("base64url")}`
         })
         .returning();
       if (newOffice) {
@@ -827,6 +918,7 @@ export async function recordAttendance(data: any) {
         .onConflictDoNothing({ target: [attendance.employeeId, attendance.date] })
         .returning();
       if (record) {
+        await refreshOpenSalaryCalculations(Number(data.employeeId));
         return formatAttendanceRecord(record, emp);
       }
       const [existing] = await db.select().from(attendance).where(and(
@@ -885,6 +977,7 @@ export async function completeAttendance(id: number, data: any) {
     })
     .where(eq(attendance.id, Number(id)))
     .returning();
+  if (updated) await refreshOpenSalaryCalculations(Number(updated.employeeId));
   return updated ? formatAttendanceRecord(updated, existing.employee, existing.office) : null;
 }
 
@@ -920,7 +1013,8 @@ export async function createAdvance(data: any) {
           employeeId: Number(data.employeeId),
           amount: String(data.amount),
           reason: data.reason || "",
-          status: "pending"
+          status: "pending",
+          requestedAt: new Date(),
         })
         .returning();
       if (record) {
@@ -928,6 +1022,13 @@ export async function createAdvance(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
+        await createNotificationRecord({
+          type: "advance_request",
+          message: `طلب سلفة جديد من ${fullRecord.employeeName}`,
+          recipientType: "admin",
+          referenceId: Number(record.id),
+          referenceIdType: "advance",
+        });
         return fullRecord;
       }
     }
@@ -962,6 +1063,15 @@ export async function updateAdvanceStatus(id: number, status: string) {
         .where(eq(advances.id, Number(id)))
         .returning();
       if (updated) {
+        await refreshOpenSalaryCalculations(Number(updated.employeeId));
+        await createNotificationRecord({
+          type: status === "approved" ? "advance_approved" : "advance_rejected",
+          message: status === "approved" ? "تمت الموافقة على طلب السلفة" : "تم رفض طلب السلفة",
+          recipientType: "employee",
+          recipientEmployeeId: Number(updated.employeeId),
+          referenceId: Number(updated.id),
+          referenceIdType: "advance",
+        });
         return updated;
       }
     }
@@ -1012,7 +1122,8 @@ export async function createLeaveRequest(data: any) {
           startDate: data.startDate,
           endDate: data.endDate,
           description: data.reason || data.description || "",
-          status: "pending"
+          status: "pending",
+          requestedAt: new Date(),
         })
         .returning();
       if (record) {
@@ -1020,6 +1131,13 @@ export async function createLeaveRequest(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
+        await createNotificationRecord({
+          type: "leave_request",
+          message: `طلب غياب جديد من ${fullRecord.employeeName}`,
+          recipientType: "admin",
+          referenceId: Number(record.id),
+          referenceIdType: "leave",
+        });
         return fullRecord;
       }
     }
@@ -1053,6 +1171,14 @@ export async function updateLeaveRequestStatus(id: number, status: string) {
         .where(eq(leaveRequests.id, Number(id)))
         .returning();
       if (updated) {
+        await createNotificationRecord({
+          type: status === "approved" ? "leave_approved" : "leave_rejected",
+          message: status === "approved" ? "تمت الموافقة على طلب الغياب" : "تم رفض طلب الغياب",
+          recipientType: "employee",
+          recipientEmployeeId: Number(updated.employeeId),
+          referenceId: Number(updated.id),
+          referenceIdType: "leave",
+        });
         return updated;
       }
     }
@@ -1102,7 +1228,8 @@ export async function createVacationRequest(data: any) {
           startDate: data.startDate,
           endDate: data.endDate,
           description: data.reason || data.description || "",
-          status: "pending"
+          status: "pending",
+          requestedAt: new Date(),
         })
         .returning();
       if (record) {
@@ -1110,6 +1237,13 @@ export async function createVacationRequest(data: any) {
           ...record,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف"
         };
+        await createNotificationRecord({
+          type: "vacation_request",
+          message: `طلب عطلة جديد من ${fullRecord.employeeName}`,
+          recipientType: "admin",
+          referenceId: Number(record.id),
+          referenceIdType: "vacation",
+        });
         return fullRecord;
       }
     }
@@ -1143,6 +1277,14 @@ export async function updateVacationRequestStatus(id: number, status: string) {
         .where(eq(vacationRequests.id, Number(id)))
         .returning();
       if (updated) {
+        await createNotificationRecord({
+          type: status === "approved" ? "vacation_approved" : "vacation_rejected",
+          message: status === "approved" ? "تمت الموافقة على طلب العطلة" : "تم رفض طلب العطلة",
+          recipientType: "employee",
+          recipientEmployeeId: Number(updated.employeeId),
+          referenceId: Number(updated.id),
+          referenceIdType: "vacation",
+        });
         return updated;
       }
     }
@@ -1354,13 +1496,25 @@ export async function createViolation(data: any) {
     ? await db.select().from(offices).where(eq(offices.id, Number(employee.officeId)))
     : [];
   const office = officeRows[0] || null;
-  return {
+  const formatted = {
     ...formatRequestRecord(result.record, employee, office),
     amount,
     deductionApplied: result.deductionApplied,
     success: true,
     message: amount > 0 ? "تم تسجيل المخالفة وتطبيق الخصم مباشرة" : "تم تسجيل المخالفة",
   };
+  await refreshOpenSalaryCalculations(employeeId);
+  await createNotificationRecord({
+    type: "violation_deduction",
+    message: amount > 0
+      ? `تم تسجيل مخالفة وخصم ${amount.toLocaleString("en-US")} DZD من راتبك`
+      : "تم تسجيل مخالفة في حسابك",
+    recipientType: "employee",
+    recipientEmployeeId: employeeId,
+    referenceId: Number(result.record.id),
+    referenceIdType: "violation",
+  });
+  return formatted;
 }
 
 // Salaries
@@ -1405,7 +1559,7 @@ export async function listNotifications(recipientType = "admin", recipientId?: n
       const all = await db.select().from(notifications).where(eq(notifications.recipientType, recipientType));
       let list = all;
       if (recipientId) {
-        list = list.filter((n: any) => Number(n.recipientEmployeeId) === Number(recipientId) || n.recipientEmployeeId === null);
+        list = list.filter((n: any) => Number(n.recipientEmployeeId) === Number(recipientId));
       }
       return list.map((notification: any) => ({ ...notification, isRead: Boolean(notification.isRead) })).sort((a: any, b: any) => {
         const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -1436,8 +1590,8 @@ export async function markNotificationsRead(recipientType = "admin", recipientId
     if (db) {
       const scope = recipientId
         ? and(
-            eq(notifications.recipientType, recipientType),
-            or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+        eq(notifications.recipientType, recipientType),
+        eq(notifications.recipientEmployeeId, Number(recipientId)),
           )
         : eq(notifications.recipientType, recipientType);
       await db.update(notifications).set({ isRead: true }).where(scope);
@@ -1447,7 +1601,7 @@ export async function markNotificationsRead(recipientType = "admin", recipientId
   }
   memoryStore.notifications.forEach((n) => {
     const matchesRecipient = n.recipientType === recipientType;
-    const matchesEmployee = !recipientId || Number(n.recipientEmployeeId ?? n.recipientId) === Number(recipientId) || (n.recipientEmployeeId == null && n.recipientId == null);
+    const matchesEmployee = !recipientId || Number(n.recipientEmployeeId ?? n.recipientId) === Number(recipientId);
     if (matchesRecipient && matchesEmployee) {
       n.isRead = true;
       n.read = true;
@@ -1558,8 +1712,20 @@ export async function restoreEmployee(id: number) {
 
 export async function permanentlyDeleteEmployee(id: number) {
   const db = getDb();
-  await db.delete(employees).where(eq(employees.id, Number(id)));
-  return true;
+  const employeeId = Number(id);
+  const deleted = await db.transaction(async (tx: any) => {
+    await tx.delete(attendance).where(eq(attendance.employeeId, employeeId));
+    await tx.delete(advances).where(eq(advances.employeeId, employeeId));
+    await tx.delete(bonuses).where(eq(bonuses.employeeId, employeeId));
+    await tx.delete(violations).where(eq(violations.employeeId, employeeId));
+    await tx.delete(salaries).where(eq(salaries.employeeId, employeeId));
+    await tx.delete(leaveRequests).where(eq(leaveRequests.employeeId, employeeId));
+    await tx.delete(vacationRequests).where(eq(vacationRequests.employeeId, employeeId));
+    await tx.delete(notifications).where(eq(notifications.recipientEmployeeId, employeeId));
+    await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.employeeId, employeeId));
+    return tx.delete(employees).where(eq(employees.id, employeeId)).returning({ id: employees.id });
+  });
+  return deleted.length > 0;
 }
 
 // Attendance CRUD
@@ -1583,9 +1749,14 @@ export async function updateAttendance(id: number, data: any) {
 
   const nextRecord = { ...existing.attendance, ...data };
   const metrics = attendanceMetrics(nextRecord, existing.employee);
+  const settingsRecord = await getSettings();
+  const overtimeRate = Number(settingsRecord?.overtimeHourlyRate || 0);
   const updateData: any = {
     workedMinutes: metrics.workedMinutes,
     lateMinutes: metrics.lateMinutes,
+    overtimeMinutes: metrics.overtimeMinutes,
+    overtimeBonus: String((metrics.overtimeMinutes / 60) * overtimeRate),
+    lateDeduction: String(metrics.lateMinutes > 0 ? Number(settingsRecord?.lateDeductionAmount || 0) : 0),
   };
   if (data.checkInTime !== undefined) updateData.checkInTime = data.checkInTime;
   if (data.checkOutTime !== undefined) updateData.checkOutTime = data.checkOutTime;
@@ -1597,8 +1768,8 @@ export async function updateAttendance(id: number, data: any) {
 
 export async function deleteAttendance(id: number) {
   const db = getDb();
-  await db.delete(attendance).where(eq(attendance.id, Number(id)));
-  return true;
+  const deleted = await db.delete(attendance).where(eq(attendance.id, Number(id))).returning({ id: attendance.id });
+  return deleted.length > 0;
 }
 
 // Violations CRUD
@@ -1644,13 +1815,16 @@ export async function updateViolation(id: number, data: any) {
     }
     return tx.update(violations).set(updateData).where(eq(violations.id, Number(id))).returning();
   });
+  if (updated) await refreshOpenSalaryCalculations(Number(updated.employeeId));
   return updated || null;
 }
 
 export async function deleteViolation(id: number) {
   const db = getDb();
-  await db.delete(violations).where(eq(violations.id, Number(id)));
-  return true;
+  const current = await getViolationById(id);
+  const deleted = await db.delete(violations).where(eq(violations.id, Number(id))).returning({ id: violations.id });
+  if (deleted.length && current) await refreshOpenSalaryCalculations(Number(current.employeeId));
+  return deleted.length > 0;
 }
 
 // Salaries
@@ -1663,18 +1837,35 @@ export async function getSalaryById(id: number) {
 export async function createSalary(data: any) {
   const db = getDb();
   const emp = await getEmployeeById(Number(data.employeeId));
+  if (!emp) throw new Error("الموظف غير موجود");
   const values: any = {
     employeeId: Number(data.employeeId),
     month: data.month || String(new Date().getMonth() + 1).padStart(2, '0'),
     year: data.year ? Number(data.year) : new Date().getFullYear(),
     baseSalary: String(data.baseSalary || emp?.baseSalary || 0),
-    finalSalary: String(data.finalSalary || data.baseSalary || emp?.baseSalary || 0),
     status: 'pending'
   };
   if (data.presentDays != null) values.presentDays = Number(data.presentDays);
   if (data.absentDays != null) values.absentDays = Number(data.absentDays);
   const [record] = await db.insert(salaries).values(values).returning();
-  return record ? { ...record, employeeName: emp ? `${emp.firstName} ${emp.lastName}` : '' } : null;
+  if (!record) return null;
+  const calculation = await getSalaryPdfData(Number(record.id));
+  const summary = calculation?.summary;
+  if (!summary) return { ...record, employeeName: `${emp.firstName} ${emp.lastName}` };
+  const [updated] = await db.update(salaries).set({
+    presentDays: Number(summary.presentDays || 0),
+    absentDays: Number(summary.absentDays || 0),
+    workedHours: String(Number(summary.workedHours || 0)),
+    overtimeHours: String(Number(summary.overtimeHours || 0)),
+    overtimeBonus: String(Number(summary.overtimeBonus || 0)),
+    lateDeductions: String(Number(summary.lateDeduction || 0)),
+    advanceDeductions: String(Number(summary.advanceTotal || 0)),
+    violationDeductions: String(Number(summary.violationTotal || 0)),
+    bonuses: String(Number(summary.bonusTotal || 0)),
+    otherDeductions: String(Number(summary.otherDeductions || 0)),
+    finalSalary: String(Number(summary.finalSalary || 0)),
+  }).where(eq(salaries.id, Number(record.id))).returning();
+  return updated ? { ...updated, employeeName: `${emp.firstName} ${emp.lastName}` } : null;
 }
 
 export async function updateSalaryStatus(id: number, status: string, extra?: any) {
@@ -1685,7 +1876,7 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
   if (extra?.postponedUntil) updateData.postponedUntil = new Date(extra.postponedUntil);
   const [updated] = await db.update(salaries).set(updateData).where(eq(salaries.id, Number(id))).returning();
   if (updated && before && before.status !== status && (status === 'paid' || status === 'postponed')) {
-    await db.insert(notifications).values({
+    await createNotificationRecord({
       type: status === 'paid' ? 'salary_paid' : 'salary_postponed',
       message: status === 'paid'
         ? 'تم صرف راتبك وإصدار كشف الراتب'
@@ -1694,8 +1885,6 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
       recipientEmployeeId: Number(updated.employeeId),
       referenceId: Number(updated.id),
       referenceIdType: 'salary',
-      isRead: false,
-      createdAt: new Date(),
     });
   }
   return updated || null;
@@ -1780,10 +1969,27 @@ export async function savePushSubscription(data: {
   return created || null;
 }
 
-export async function deletePushSubscription(endpoint: string) {
+export async function deletePushSubscription(endpoint: string, userType?: "admin" | "employee", employeeId?: number | null) {
   const db = getDb();
-  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
-  return true;
+  const scope = userType
+    ? and(
+        eq(pushSubscriptions.endpoint, endpoint),
+        eq(pushSubscriptions.userType, userType),
+        userType === "employee" ? eq(pushSubscriptions.employeeId, Number(employeeId)) : isNull(pushSubscriptions.employeeId),
+      )
+    : eq(pushSubscriptions.endpoint, endpoint);
+  const deleted = await db.delete(pushSubscriptions).where(scope).returning({ id: pushSubscriptions.id });
+  return deleted.length > 0;
+}
+
+function pushTargetPath(notification: any) {
+  if (notification.recipientType === "employee") {
+    return notification.type === "violation_deduction" ? "/portal/violations" : "/portal";
+  }
+  if (String(notification.type || "").includes("salary")) return "/salaries";
+  if (String(notification.type || "").includes("request") || String(notification.type || "").includes("advance")) return "/requests";
+  if (String(notification.type || "").includes("violation")) return "/violations";
+  return "/dashboard";
 }
 
 export async function sendPushNotification(notification: any) {
@@ -1808,6 +2014,7 @@ export async function sendPushNotification(notification: any) {
         body: notification.message || "إشعار جديد",
         notificationId: notification.id,
         type: notification.type || "info",
+        url: pushTargetPath(notification),
       }));
     } catch (error: any) {
       if (error?.statusCode === 404 || error?.statusCode === 410) {
@@ -1825,7 +2032,7 @@ export async function markSingleNotificationRead(id: number, recipientType = "ad
       ? and(
           eq(notifications.id, Number(id)),
           eq(notifications.recipientType, recipientType),
-          or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+          eq(notifications.recipientEmployeeId, Number(recipientId)),
         )
       : and(eq(notifications.id, Number(id)), eq(notifications.recipientType, recipientType));
     const [updated] = await db.update(notifications).set({ isRead: true }).where(scope).returning();
@@ -1843,7 +2050,7 @@ export async function deleteNotification(id: number, recipientType = "admin", re
       ? and(
           eq(notifications.id, Number(id)),
           eq(notifications.recipientType, recipientType),
-          or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+          eq(notifications.recipientEmployeeId, Number(recipientId)),
         )
       : and(eq(notifications.id, Number(id)), eq(notifications.recipientType, recipientType));
     const [deleted] = await db.delete(notifications).where(scope).returning();
@@ -1861,7 +2068,7 @@ export async function deleteAllNotifications(recipientType = "admin", recipientI
       const scope = recipientId
         ? and(
             eq(notifications.recipientType, recipientType),
-            or(eq(notifications.recipientEmployeeId, Number(recipientId)), isNull(notifications.recipientEmployeeId)),
+            eq(notifications.recipientEmployeeId, Number(recipientId)),
           )
         : eq(notifications.recipientType, recipientType);
       await db.delete(notifications).where(scope);
@@ -2055,6 +2262,10 @@ export async function markAutoAbsences(lookbackDays = 30) {
   const existingAtt = await db.select({ employeeId: attendance.employeeId, date: attendance.date })
     .from(attendance)
     .where(sql`${attendance.date} >= ${sinceStr}`);
+  const [approvedLeaves, approvedVacations] = await Promise.all([
+    db.select().from(leaveRequests).where(eq(leaveRequests.status, "approved")),
+    db.select().from(vacationRequests).where(eq(vacationRequests.status, "approved")),
+  ]);
 
   const attSet = new Set<string>(
     existingAtt.map((a: any) => `${a.employeeId}:${String(a.date || '').slice(0, 10)}`)
@@ -2063,7 +2274,7 @@ export async function markAutoAbsences(lookbackDays = 30) {
   const REST_DAY_MAP: Record<string, number> = {
     'sunday': 0, 'monday': 1, 'tuesday': 2, 'wednesday': 3,
     'thursday': 4, 'friday': 5, 'saturday': 6,
-    'الأحد': 0, 'الإثنين': 1, 'الثلاثاء': 2, 'الأربعاء': 3,
+    'الأحد': 0, 'الاحد': 0, 'الإثنين': 1, 'الاثنين': 1, 'الثلاثاء': 2, 'الأربعاء': 3,
     'الخميس': 4, 'الجمعة': 5, 'السبت': 6,
   };
 
@@ -2089,10 +2300,18 @@ export async function markAutoAbsences(lookbackDays = 30) {
       date.setDate(date.getDate() + d);
       const dateStr = date.toISOString().slice(0, 10);
       if (dateStr >= todayStr) break; // never mark today absent
+      const hireDate = String(emp.hireDate || '').slice(0, 10);
+      if (hireDate && dateStr < hireDate) continue;
       if (restDayNums.includes(date.getDay())) continue; // skip rest days
 
       const key = `${emp.id}:${dateStr}`;
       if (attSet.has(key)) continue; // already has a record for this day
+      const onApprovedTimeOff = [...approvedLeaves, ...approvedVacations].some((request: any) =>
+        Number(request.employeeId) === Number(emp.id) &&
+        String(request.startDate || '') <= dateStr &&
+        String(request.endDate || request.startDate || '') >= dateStr,
+      );
+      if (onApprovedTimeOff) continue;
 
       attSet.add(key); // prevent duplication within this run
       inserts.push({

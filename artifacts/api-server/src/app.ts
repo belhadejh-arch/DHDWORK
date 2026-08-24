@@ -34,6 +34,9 @@ import {
   getAdminByEmail,
   getAdminById,
   getAdminByQrSecret,
+  createSession,
+  getSession,
+  deleteSession,
   getEmployeeByCode,
   getEmployeeByQrSecret,
   getEmployeeById,
@@ -141,41 +144,65 @@ apiRouter.get('/status', (req, res) => {
 async function getAuthContext(req: express.Request) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '').trim() || req.cookies?.dhd_admin_token || req.cookies?.employee_token || '';
+  const session = await getSession(token);
+  if (!session) return null;
 
-  if (token.startsWith('emp_token_')) {
-    const empId = Number(token.replace('emp_token_', ''));
-    if (!isNaN(empId)) {
-      const emp = await getEmployeeById(empId);
-      if (emp) return { userType: 'employee', employee: emp };
+  if (session.userType === 'employee') {
+    const employee = await getEmployeeById(Number(session.userId));
+    if (employee && employee.isActive !== false && employee.status !== 'inactive') {
+      return { userType: 'employee' as const, employee };
     }
-  }
-
-  if (token.startsWith('admin_token_')) {
-    const adminId = Number(token.replace('admin_token_', ''));
-    if (!isNaN(adminId) && adminId > 0) {
-      const admin = await getAdminById(adminId);
-      if (admin) {
-        return {
-          userType: 'admin',
-          admin: {
-            id: admin.id,
-            email: admin.email || null,
-            serialNumber: admin.serialNumber || null,
-            username: admin.username || null,
-            firstName: admin.firstName || '',
-            lastName: admin.lastName || '',
-            phone: admin.phone || null,
-            name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
-            role: 'superadmin'
-          }
-        };
-      }
-    }
-    // Unknown admin token — reject outright (no fallback to any default account)
+    await deleteSession(token);
     return null;
   }
 
+  if (session.userType === 'admin') {
+    const admin = await getAdminById(Number(session.userId));
+    if (!admin) return null;
+    return {
+      userType: 'admin' as const,
+      admin: {
+        id: admin.id,
+        email: admin.email || null,
+        serialNumber: admin.serialNumber || null,
+        username: admin.username || null,
+        firstName: admin.firstName || '',
+        lastName: admin.lastName || '',
+        phone: admin.phone || null,
+        name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
+        role: 'superadmin'
+      }
+    };
+  }
+
   return null;
+}
+
+function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000,
+  };
+}
+
+async function requireAdmin(req: express.Request, res: express.Response) {
+  const ctx = await getAuthContext(req);
+  if (!ctx || ctx.userType !== 'admin') {
+    res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
+    return null;
+  }
+  return ctx;
+}
+
+async function requireAuthenticated(req: express.Request, res: express.Response) {
+  const ctx = await getAuthContext(req);
+  if (!ctx) {
+    res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+    return null;
+  }
+  return ctx;
 }
 
 // Auth Endpoints
@@ -190,16 +217,14 @@ apiRouter.post('/auth/login', async (req, res) => {
   if (admin) {
     const pwdStr = String(password || '').trim();
     const hashed = crypto.createHash('sha256').update(pwdStr).digest('hex');
-    const isPasswordCorrect =
-      !pwdStr ||
+    const isPasswordCorrect = Boolean(pwdStr) && (
       admin.passwordHash === pwdStr ||
-      admin.passwordHash === hashed ||
-      pwdStr === 'admin123' ||
-      pwdStr === 'admin';
+      admin.passwordHash === hashed
+    );
 
     if (isPasswordCorrect) {
-      const token = `admin_token_${admin.id}`;
-      res.cookie('dhd_admin_token', token, { httpOnly: false, maxAge: 86400000 });
+      const token = await createSession('admin', Number(admin.id));
+      res.cookie('dhd_admin_token', token, sessionCookieOptions());
       return res.json({
         success: true,
         userType: 'admin',
@@ -234,8 +259,8 @@ apiRouter.post('/auth/login/serial', async (req, res) => {
     if (emp.status === 'inactive' || emp.isActive === false) {
       return res.status(403).json({ success: false, message: 'الحساب موقوف أو غير نشط' });
     }
-    const token = `emp_token_${emp.id}`;
-    res.cookie('employee_token', token, { httpOnly: false, maxAge: 86400000 });
+    const token = await createSession('employee', Number(emp.id));
+    res.cookie('employee_token', token, sessionCookieOptions());
     return res.json({
       success: true,
       userType: 'employee',
@@ -258,8 +283,8 @@ apiRouter.post('/auth/login/qr', async (req, res) => {
     if (emp.status === 'inactive' || emp.isActive === false) {
       return res.status(403).json({ success: false, message: 'الحساب موقوف أو غير نشط' });
     }
-    const token = `emp_token_${emp.id}`;
-    res.cookie('employee_token', token, { httpOnly: false, maxAge: 86400000 });
+    const token = await createSession('employee', Number(emp.id));
+    res.cookie('employee_token', token, sessionCookieOptions());
     return res.json({
       success: true,
       userType: 'employee',
@@ -270,8 +295,8 @@ apiRouter.post('/auth/login/qr', async (req, res) => {
 
   const admin = await getAdminByQrSecret(qrCodeData);
   if (admin) {
-    const token = `admin_token_${admin.id}`;
-    res.cookie('dhd_admin_token', token, { httpOnly: false, maxAge: 86400000 });
+    const token = await createSession('admin', Number(admin.id));
+    res.cookie('dhd_admin_token', token, sessionCookieOptions());
     return res.json({
       success: true,
       userType: 'admin',
@@ -329,8 +354,7 @@ apiRouter.post('/auth/change-password', async (req, res) => {
   // Verify current password if provided
   if (currentPassword) {
     const curHashed = crypto.createHash('sha256').update(String(currentPassword)).digest('hex');
-    const isOk = admin.passwordHash === String(currentPassword) || admin.passwordHash === curHashed ||
-      String(currentPassword) === 'admin123' || String(currentPassword) === 'admin';
+    const isOk = admin.passwordHash === String(currentPassword) || admin.passwordHash === curHashed;
     if (!isOk) return res.status(403).json({ success: false, message: 'كلمة المرور الحالية غير صحيحة' });
   }
   const hashedNew = crypto.createHash('sha256').update(String(newPassword)).digest('hex');
@@ -339,7 +363,10 @@ apiRouter.post('/auth/change-password', async (req, res) => {
   return res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح' });
 });
 
-apiRouter.post('/auth/logout', (req, res) => {
+apiRouter.post('/auth/logout', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '').trim() || req.cookies?.dhd_admin_token || req.cookies?.employee_token || '';
+  await deleteSession(token);
   res.clearCookie('dhd_admin_token');
   res.clearCookie('employee_token');
   res.json({ success: true, message: 'تم تسجيل الخروج بنجاح' });
@@ -347,27 +374,32 @@ apiRouter.post('/auth/logout', (req, res) => {
 
 // Employees Endpoints
 apiRouter.get('/employees', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const list = await listEmployees(req.query);
   res.json(list);
 });
 
 apiRouter.post('/employees', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const newEmp = await createEmployee(req.body);
   res.status(201).json(newEmp);
 });
 
 // Former employees
 apiRouter.get('/employees/former', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const list = await listFormerEmployees();
   res.json(list);
 });
 
 // Seed defaults — no-op, DB already has real data
 apiRouter.post('/employees/seed-defaults', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   res.json({ success: true, message: 'البيانات محفوظة في قاعدة البيانات' });
 });
 
 apiRouter.get('/employees/attendance-summary', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const filterEmpId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const filterMonth = req.query.month ? String(req.query.month).padStart(2, '0') : undefined;
   const filterYear = req.query.year ? Number(req.query.year) : undefined;
@@ -403,40 +435,49 @@ apiRouter.get('/employees/attendance-summary', async (req, res) => {
 });
 
 apiRouter.get('/employees/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const emp = await getEmployeeById(Number(req.params.id));
   if (!emp) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json(emp);
 });
 
 apiRouter.patch('/employees/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const updated = await updateEmployee(Number(req.params.id), req.body);
   if (!updated) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json(updated);
 });
 
 apiRouter.delete('/employees/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const reason = req.body?.reason || 'Deleted by admin';
-  await deleteEmployee(Number(req.params.id), reason);
-  res.json({ success: true, message: 'تم حذف الموظف' });
+  const deleted = await deleteEmployee(Number(req.params.id), reason);
+  if (!deleted) return res.status(404).json({ message: 'الموظف غير موجود' });
+  return res.json({ success: true, message: 'تم حذف الموظف' });
 });
 
 apiRouter.post('/employees/:id/restore', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const emp = await restoreEmployee(Number(req.params.id));
   if (!emp) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json(emp);
 });
 
 apiRouter.post('/employees/:id/permanent', async (req, res) => {
-  await permanentlyDeleteEmployee(Number(req.params.id));
-  res.json({ success: true, message: 'تم الحذف النهائي للموظف' });
+  if (!await requireAdmin(req, res)) return;
+  const deleted = await permanentlyDeleteEmployee(Number(req.params.id));
+  if (!deleted) return res.status(404).json({ message: 'الموظف غير موجود' });
+  return res.json({ success: true, message: 'تم الحذف النهائي للموظف' });
 });
 
 apiRouter.get('/employees/:id/salary-balance', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const balance = await getEmployeeSalaryBalance(Number(req.params.id));
   res.json(balance);
 });
 
 apiRouter.get('/employees/:id/transactions', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const empId = Number(req.params.id);
   const [advList, salList, violList] = await Promise.all([
     listAdvances(empId),
@@ -447,6 +488,7 @@ apiRouter.get('/employees/:id/transactions', async (req, res) => {
 });
 
 apiRouter.get('/employees/:id/qr-code', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const emp = await getEmployeeById(Number(req.params.id));
   if (!emp) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json({
@@ -459,6 +501,7 @@ apiRouter.get('/employees/:id/qr-code', async (req, res) => {
 // Keep both spellings because the imported UI uses /qrcode while older clients
 // use /qr-code. Both routes return the same database-backed value.
 apiRouter.get('/employees/:id/qrcode', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const emp = await getEmployeeById(Number(req.params.id));
   if (!emp) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json({
@@ -469,6 +512,7 @@ apiRouter.get('/employees/:id/qrcode', async (req, res) => {
 });
 
 apiRouter.post('/employees/:id/qrcode/regenerate', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const emp = await rotateEmployeeQr(Number(req.params.id));
   if (!emp) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json({
@@ -480,16 +524,19 @@ apiRouter.post('/employees/:id/qrcode/regenerate', async (req, res) => {
 
 // Offices Endpoints
 apiRouter.get('/offices', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const list = await listOffices();
   res.json(list);
 });
 
 apiRouter.post('/offices', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const office = await createOffice(req.body);
   res.status(201).json(office);
 });
 
 apiRouter.get('/offices/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   if (req.params.id === 'qrcode') return; // handled below
   const office = await getOfficeById(Number(req.params.id));
   if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
@@ -497,17 +544,20 @@ apiRouter.get('/offices/:id', async (req, res) => {
 });
 
 apiRouter.patch('/offices/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const office = await updateOffice(Number(req.params.id), req.body);
   if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
   return res.json(office);
 });
 
 apiRouter.delete('/offices/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   await deleteOffice(Number(req.params.id));
   res.json({ success: true });
 });
 
 apiRouter.get('/offices/:id/qrcode', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const office = await getOfficeById(Number(req.params.id));
   if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
   const qr = office.qrCodeData || office.qrCodeSecret || null;
@@ -520,6 +570,7 @@ apiRouter.get('/offices/:id/qrcode', async (req, res) => {
 });
 
 apiRouter.post('/offices/:id/qrcode/regenerate', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const office = await rotateOfficeQr(Number(req.params.id));
   if (!office) return res.status(404).json({ message: 'المكتب غير موجود' });
   const qr = office.qrCodeData || office.qrCodeSecret || null;
@@ -534,6 +585,7 @@ apiRouter.post('/offices/:id/qrcode/regenerate', async (req, res) => {
 apiRouter.get('/admins/:id/qrcode', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
+  if (Number(ctx.admin.id) !== Number(req.params.id)) return res.status(403).json({ message: 'غير مصرح لك بإدارة رمز مسؤول آخر' });
   let admin = await getAdminById(Number(req.params.id));
   if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
   if (!admin.qrCodeData) admin = await rotateAdminQr(Number(req.params.id));
@@ -547,6 +599,7 @@ apiRouter.get('/admins/:id/qrcode', async (req, res) => {
 apiRouter.get('/admins/:id/qrcode.svg', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
+  if (Number(ctx.admin.id) !== Number(req.params.id)) return res.status(403).json({ message: 'غير مصرح لك بإدارة رمز مسؤول آخر' });
   let admin = await getAdminById(Number(req.params.id));
   if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
   if (!admin.qrCodeData) admin = await rotateAdminQr(Number(req.params.id));
@@ -566,6 +619,7 @@ apiRouter.get('/admins/:id/qrcode.svg', async (req, res) => {
 apiRouter.get('/admins/:id/serial', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
+  if (Number(ctx.admin.id) !== Number(req.params.id)) return res.status(403).json({ message: 'غير مصرح لك بعرض بيانات مسؤول آخر' });
   // The profile must show the persisted identifier used by the account.
   // Do not create a new serial as a side effect of opening the profile.
   const admin = await getAdminById(Number(req.params.id));
@@ -581,6 +635,7 @@ apiRouter.get('/admins/:id/serial', async (req, res) => {
 apiRouter.patch('/admins/:id', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ success: false, message: 'يجب تسجيل الدخول كمسؤول' });
+  if (Number(ctx.admin.id) !== Number(req.params.id)) return res.status(403).json({ success: false, message: 'غير مصرح لك بتعديل حساب مسؤول آخر' });
   const updated = await updateAdmin(Number(req.params.id), req.body);
   if (!updated) return res.status(404).json({ message: 'المسؤول غير موجود' });
   return res.json({ success: true, admin: updated });
@@ -589,6 +644,7 @@ apiRouter.patch('/admins/:id', async (req, res) => {
 apiRouter.post('/admins/:id/qrcode/regenerate', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
+  if (Number(ctx.admin.id) !== Number(req.params.id)) return res.status(403).json({ message: 'غير مصرح لك بإدارة رمز مسؤول آخر' });
   const admin = await rotateAdminQr(Number(req.params.id));
   if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
   return res.json({
@@ -644,7 +700,8 @@ apiRouter.post('/qr/verify', async (req, res) => {
 
 // Attendance Endpoints
 apiRouter.get('/attendance', async (req, res) => {
-  const ctx = await getAuthContext(req);
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return;
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const dateFilter = typeof req.query.date === 'string' ? req.query.date : undefined;
   const list = await listAttendance(empId, dateFilter);
@@ -652,6 +709,7 @@ apiRouter.get('/attendance', async (req, res) => {
 });
 
 apiRouter.post('/attendance', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await recordAttendance(req.body);
   res.status(201).json(record);
 });
@@ -661,89 +719,111 @@ apiRouter.post('/attendance', async (req, res) => {
 apiRouter.post('/attendance/:action', employeeAttendanceAction);
 
 apiRouter.get('/attendance/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await getAttendanceById(Number(req.params.id));
   if (!record) return res.status(404).json({ message: 'سجل الحضور غير موجود' });
   return res.json(record);
 });
 
 apiRouter.patch('/attendance/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await updateAttendance(Number(req.params.id), req.body);
   if (!record) return res.status(404).json({ message: 'سجل الحضور غير موجود' });
   return res.json(record);
 });
 
 apiRouter.delete('/attendance/:id', async (req, res) => {
-  await deleteAttendance(Number(req.params.id));
-  res.json({ success: true });
+  if (!await requireAdmin(req, res)) return;
+  const deleted = await deleteAttendance(Number(req.params.id));
+  if (!deleted) return res.status(404).json({ message: 'سجل الحضور غير موجود' });
+  return res.json({ success: true });
 });
 
 // Advances Endpoints
 apiRouter.get('/advances', async (req, res) => {
-  const ctx = await getAuthContext(req);
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return;
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const list = await listAdvances(empId);
   res.json(list);
 });
 
 apiRouter.post('/advances', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await createAdvance(req.body);
   res.status(201).json(record);
 });
 
 apiRouter.post('/advances/:id/approve', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const updated = await updateAdvanceStatus(Number(req.params.id), 'approved');
-  res.json(updated);
+  if (!updated) return res.status(404).json({ message: 'طلب السلفة غير موجود' });
+  return res.json(updated);
 });
 
 apiRouter.post('/advances/:id/reject', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const updated = await updateAdvanceStatus(Number(req.params.id), 'rejected');
-  res.json(updated);
+  if (!updated) return res.status(404).json({ message: 'طلب السلفة غير موجود' });
+  return res.json(updated);
 });
 
 // Leave Requests Endpoints
 apiRouter.get('/leave-requests', async (req, res) => {
-  const ctx = await getAuthContext(req);
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return;
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const list = await listLeaveRequests(empId);
   res.json(list);
 });
 
 apiRouter.post('/leave-requests', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await createLeaveRequest(req.body);
   res.status(201).json(record);
 });
 
 apiRouter.post('/leave-requests/:id/approve', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const updated = await updateLeaveRequestStatus(Number(req.params.id), 'approved');
-  res.json(updated);
+  if (!updated) return res.status(404).json({ message: 'طلب الغياب غير موجود' });
+  return res.json(updated);
 });
 
 apiRouter.post('/leave-requests/:id/reject', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const updated = await updateLeaveRequestStatus(Number(req.params.id), 'rejected');
-  res.json(updated);
+  if (!updated) return res.status(404).json({ message: 'طلب الغياب غير موجود' });
+  return res.json(updated);
 });
 
 // Vacation Requests Endpoints
 apiRouter.get('/vacation-requests', async (req, res) => {
-  const ctx = await getAuthContext(req);
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return;
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const list = await listVacationRequests(empId);
   res.json(list);
 });
 
 apiRouter.post('/vacation-requests', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await createVacationRequest(req.body);
   res.status(201).json(record);
 });
 
 apiRouter.post('/vacation-requests/:id/approve', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const updated = await updateVacationRequestStatus(Number(req.params.id), 'approved');
-  res.json(updated);
+  if (!updated) return res.status(404).json({ message: 'طلب العطلة غير موجود' });
+  return res.json(updated);
 });
 
 apiRouter.post('/vacation-requests/:id/reject', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const updated = await updateVacationRequestStatus(Number(req.params.id), 'rejected');
-  res.json(updated);
+  if (!updated) return res.status(404).json({ message: 'طلب العطلة غير موجود' });
+  return res.json(updated);
 });
 
 // Bonuses Endpoints
@@ -797,41 +877,79 @@ apiRouter.delete('/bonuses/:id', async (req, res) => {
 
 // Violations Endpoints
 apiRouter.get('/violations', async (req, res) => {
-  const ctx = await getAuthContext(req);
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return;
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const list = await listViolations(empId);
   res.json(list);
 });
 
 apiRouter.post('/violations', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await createViolation(req.body);
   res.status(201).json(record);
 });
 
 apiRouter.get('/violations/:id', async (req, res) => {
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return;
   const v = await getViolationById(Number(req.params.id));
   if (!v) return res.status(404).json({ message: 'المخالفة غير موجودة' });
+  if (ctx.userType === 'employee' && Number(v.employeeId) !== Number(ctx.employee.id)) {
+    return res.status(403).json({ message: 'غير مصرح لك بالوصول إلى هذه المخالفة' });
+  }
   return res.json(v);
 });
 
 apiRouter.patch('/violations/:id', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const existing = await getViolationById(Number(req.params.id));
+  if (!existing) return res.status(404).json({ message: 'المخالفة غير موجودة' });
+  if (existing.salaryId) {
+    const salary = await getSalaryById(Number(existing.salaryId));
+    if (salary?.status === 'paid') return res.status(409).json({ message: 'لا يمكن تعديل مخالفة مرتبطة براتب مدفوع' });
+  }
   const v = await updateViolation(Number(req.params.id), req.body);
   if (!v) return res.status(404).json({ message: 'المخالفة غير موجودة' });
   return res.json(v);
 });
 
 apiRouter.delete('/violations/:id', async (req, res) => {
-  await deleteViolation(Number(req.params.id));
-  res.json({ success: true });
+  if (!await requireAdmin(req, res)) return;
+  const existing = await getViolationById(Number(req.params.id));
+  if (!existing) return res.status(404).json({ message: 'المخالفة غير موجودة' });
+  if (existing.salaryId) {
+    const salary = await getSalaryById(Number(existing.salaryId));
+    if (salary?.status === 'paid') return res.status(409).json({ message: 'لا يمكن حذف مخالفة مرتبطة براتب مدفوع' });
+  }
+  const deleted = await deleteViolation(Number(req.params.id));
+  if (!deleted) return res.status(404).json({ message: 'المخالفة غير موجودة' });
+  return res.json({ success: true });
 });
 
 // Salaries Endpoints
 apiRouter.get('/salaries', async (req, res) => {
-  const ctx = await getAuthContext(req);
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return;
   const empId = ctx?.userType === 'employee' ? ctx.employee.id : req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const list = await listSalaries(empId);
   res.json(list);
 });
+
+async function requireSalaryAccess(req: express.Request, res: express.Response, salaryId: number) {
+  const ctx = await requireAuthenticated(req, res);
+  if (!ctx) return null;
+  const salary = await getSalaryById(salaryId);
+  if (!salary) {
+    res.status(404).json({ message: 'الراتب غير موجود' });
+    return null;
+  }
+  if (ctx.userType === 'employee' && Number(salary.employeeId) !== Number(ctx.employee.id)) {
+    res.status(403).json({ message: 'غير مصرح لك بالوصول إلى هذا الراتب' });
+    return null;
+  }
+  return { ctx, salary };
+}
 
 function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>, pdfUrl?: string) {
   if (!data) return null;
@@ -933,12 +1051,14 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
 }
 
 apiRouter.get('/employees/:id/salary-history', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const employee = await getEmployeeById(Number(req.params.id));
   if (!employee) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json(await listSalaries(Number(req.params.id)));
 });
 
 apiRouter.get('/salaries/upcoming', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const now = new Date();
   const month = String(req.query.month || now.getMonth() + 1).padStart(2, '0');
   const year = Number(req.query.year || now.getFullYear());
@@ -961,6 +1081,7 @@ apiRouter.get('/salaries/upcoming', async (req, res) => {
 });
 
 apiRouter.get('/salaries/preview', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const employeeId = Number(req.query.employeeId);
   if (!Number.isInteger(employeeId) || employeeId <= 0) {
     return res.status(400).json({ message: 'معرف الموظف غير صالح' });
@@ -974,6 +1095,7 @@ apiRouter.get('/salaries/preview', async (req, res) => {
 });
 
 apiRouter.post('/salaries/single', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const employeeId = Number(req.body?.employeeId);
   if (!Number.isInteger(employeeId) || employeeId <= 0) {
     return res.status(400).json({ message: 'معرف الموظف غير صالح' });
@@ -989,14 +1111,15 @@ apiRouter.post('/salaries/single', async (req, res) => {
 });
 
 apiRouter.post('/salaries/generate', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const record = await createSalary(req.body);
   res.status(201).json(record);
 });
 
 apiRouter.get('/salaries/:id', async (req, res) => {
-  const s = await getSalaryById(Number(req.params.id));
-  if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
-  return res.json(s);
+  const result = await requireSalaryAccess(req, res, Number(req.params.id));
+  if (!result) return;
+  return res.json(result.salary);
 });
 
 // JSON payslip data used by the admin and employee print views.
@@ -1014,6 +1137,7 @@ apiRouter.get('/salaries/:id/payslip', async (req, res) => {
 });
 
 async function paySalary(req: express.Request, res: express.Response) {
+  if (!await requireAdmin(req, res)) return;
   const s = await updateSalaryStatus(Number(req.params.id), 'paid');
   if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
   return res.json({ ...s, ok: true });
@@ -1023,6 +1147,10 @@ apiRouter.post('/salaries/:id/pay', paySalary);
 apiRouter.patch('/salaries/:id/pay', paySalary);
 
 async function postponeSalary(req: express.Request, res: express.Response) {
+  if (!await requireAdmin(req, res)) return;
+  const current = await getSalaryById(Number(req.params.id));
+  if (!current) return res.status(404).json({ message: 'الراتب غير موجود' });
+  if (current.status === 'paid') return res.status(409).json({ message: 'لا يمكن تعديل راتب تم دفعه' });
   const s = await updateSalaryStatus(Number(req.params.id), 'postponed', { postponedUntil: req.body?.postponedUntil });
   if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
   return res.json({ ...s, ok: true });
@@ -1037,8 +1165,8 @@ apiRouter.get('/salaries/:id/pdf', async (req, res) => {
   // Accept a short-lived token so window.open() works without relying on cookies
   const tokenOk = consumePdfToken(req.query.t as string | undefined, salaryId);
   if (!tokenOk) {
-    const ctx = await getAuthContext(req);
-    if (ctx?.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
+    const access = await requireSalaryAccess(req, res, salaryId);
+    if (!access) return;
   }
   const data = await getSalaryPdfData(salaryId);
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
@@ -1125,7 +1253,9 @@ apiRouter.get('/notifications', async (req, res) => {
 
 apiRouter.get('/push/public-key', (req, res) => {
   const publicKey = process.env.VAPID_PUBLIC_KEY;
-  if (!publicKey) return res.status(503).json({ enabled: false, message: 'Push Notifications غير مهيأة بعد' });
+  if (!publicKey || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_SUBJECT) {
+    return res.status(503).json({ enabled: false, message: 'Push Notifications غير مهيأة بعد' });
+  }
   return res.json({ enabled: true, publicKey });
 });
 
@@ -1149,7 +1279,13 @@ apiRouter.post('/push/subscribe', async (req, res) => {
 apiRouter.delete('/push/subscribe', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  if (req.body?.endpoint) await deletePushSubscription(String(req.body.endpoint));
+  if (req.body?.endpoint) {
+    await deletePushSubscription(
+      String(req.body.endpoint),
+      ctx.userType === 'employee' ? 'employee' : 'admin',
+      ctx.userType === 'employee' ? ctx.employee.id : null,
+    );
+  }
   return res.json({ success: true });
 });
 
@@ -1257,22 +1393,26 @@ apiRouter.delete('/notifications', async (req, res) => {
 
 // Settings
 apiRouter.get('/settings', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const s = await getSettings();
   res.json(s);
 });
 
 apiRouter.patch('/settings', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const s = await updateSettings(req.body);
   res.json(s);
 });
 
 // Statistics
 apiRouter.get('/stats/dashboard', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const stats = await getDashboardStats();
   res.json(stats);
 });
 
 apiRouter.get('/stats/office', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const officesList = await listOffices();
   const employeesList = await listEmployees();
   const result = officesList.map((o: any) => ({
@@ -1284,12 +1424,14 @@ apiRouter.get('/stats/office', async (req, res) => {
 });
 
 apiRouter.get('/stats/attendance-chart', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const days = Number(req.query.days || 7);
   const data = await getAttendanceChartData(Math.min(Math.max(days, 3), 90));
   res.json(data);
 });
 
 apiRouter.get('/stats/salary-chart', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const data = await getSalaryChartData();
   res.json(data);
 });
@@ -1308,6 +1450,7 @@ apiRouter.post('/admin/mark-absences', async (req, res) => {
 
 // Unified requests endpoint with optional status filter
 apiRouter.get('/requests', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
   const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
   const list = await listAllRequests({ status, employeeId });
@@ -1315,16 +1458,19 @@ apiRouter.get('/requests', async (req, res) => {
 });
 
 apiRouter.get('/requests/pending', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const list = await listAllRequests({ status: 'pending' });
   return res.json(list);
 });
 
 apiRouter.get('/requests/approved', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const list = await listAllRequests({ status: 'approved' });
   return res.json(list);
 });
 
 apiRouter.get('/requests/rejected', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
   const list = await listAllRequests({ status: 'rejected' });
   return res.json(list);
 });
@@ -1423,6 +1569,27 @@ apiRouter.get('/employee/requests', async (req, res) => {
     listVacationRequests(ctx.employee.id),
   ]);
   return res.json({ advances: advancesList, leaveRequests: leaveList, vacationRequests: vacationList });
+});
+
+apiRouter.post('/employee/requests/advance', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const record = await createAdvance({ ...req.body, employeeId: ctx.employee.id });
+  return res.status(201).json(record);
+});
+
+apiRouter.post('/employee/requests/leave', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const record = await createLeaveRequest({ ...req.body, employeeId: ctx.employee.id });
+  return res.status(201).json(record);
+});
+
+apiRouter.post('/employee/requests/vacation', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const record = await createVacationRequest({ ...req.body, employeeId: ctx.employee.id });
+  return res.status(201).json(record);
 });
 
 apiRouter.get('/employee/notifications', async (req, res) => {
@@ -1670,11 +1837,14 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
   // GPS distance check — use office-configured geofence radius (default 150 m)
   const empLat = parseFloat(String(req.body?.latitude ?? ''));
   const empLng = parseFloat(String(req.body?.longitude ?? ''));
-  if (isNaN(empLat) || isNaN(empLng)) {
+  if (!Number.isFinite(empLat) || !Number.isFinite(empLng) || empLat < -90 || empLat > 90 || empLng < -180 || empLng > 180) {
     return res.status(403).json({ code: 'gps_required', message: 'يجب تفعيل GPS وتحديد موقعك الجغرافي' });
   }
   const officeLat = parseFloat(String(office.latitude || '0'));
   const officeLng = parseFloat(String(office.longitude || '0'));
+  if (!Number.isFinite(officeLat) || !Number.isFinite(officeLng) || officeLat < -90 || officeLat > 90 || officeLng < -180 || officeLng > 180) {
+    return res.status(500).json({ code: 'office_location_invalid', message: 'موقع المكتب غير مهيأ بشكل صحيح' });
+  }
   const geofenceRadius = Number(office.geofenceRadiusMeters || 150);
   const distM = haversineMeters(empLat, empLng, officeLat, officeLng);
   if (distM > geofenceRadius) {
@@ -1696,6 +1866,10 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
       longitude: empLng
     });
     return res.status(201).json({ ...record, ok: true });
+  }
+
+  if (Number(existing!.officeId) !== Number(office.id)) {
+    return res.status(403).json({ code: 'wrong_office', message: 'يجب تسجيل الانصراف من مكتب الحضور نفسه' });
   }
 
   const updated = await completeAttendance(existing!.id, {
