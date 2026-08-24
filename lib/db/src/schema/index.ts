@@ -12,7 +12,9 @@ export const admins = pgTable("admins", {
   createdAt: timestamp("created_at"),
   isPrimary: boolean("is_primary"),
   phone: text("phone"),
-});
+}, (table) => ({
+  serialNumberUnique: uniqueIndex("admins_serial_number_unique").on(table.serialNumber),
+}));
 
 export const offices = pgTable("offices", {
   id: serial("id").primaryKey(),

@@ -56,6 +56,7 @@ import {
   rotateEmployeeQr,
   rotateOfficeQr,
   rotateAdminQr,
+  ensureAdminSerial,
   updateAdmin,
   seedOfficialOffices,
   getSalaryPdfData,
@@ -158,7 +159,13 @@ async function getAuthContext(req: express.Request) {
   }
 
   if (session.userType === 'admin') {
-    const admin = await getAdminById(Number(session.userId));
+    let admin = await getAdminById(Number(session.userId));
+    if (!admin) return null;
+    if (!admin.serialNumber) {
+      const provisionedAdmin = await ensureAdminSerial(Number(admin.id));
+      if (!provisionedAdmin) return null;
+      admin = provisionedAdmin;
+    }
     if (!admin) return null;
     return {
       userType: 'admin' as const,
@@ -621,9 +628,7 @@ apiRouter.get('/admins/:id/serial', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول' });
   if (Number(ctx.admin.id) !== Number(req.params.id)) return res.status(403).json({ message: 'غير مصرح لك بعرض بيانات مسؤول آخر' });
-  // The profile must show the persisted identifier used by the account.
-  // Do not create a new serial as a side effect of opening the profile.
-  const admin = await getAdminById(Number(req.params.id));
+  const admin = await ensureAdminSerial(Number(req.params.id));
   if (!admin) return res.status(404).json({ message: 'المسؤول غير موجود' });
   return res.json({
     adminId: admin.id,
