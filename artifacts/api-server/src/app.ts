@@ -59,6 +59,7 @@ import {
   updateAdmin,
   seedOfficialOffices,
   getSalaryPdfData,
+  getSalaryPreviewData,
   listAttendance,
   recordAttendance,
   completeAttendance,
@@ -960,8 +961,8 @@ function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>, pd
     attendanceRecords: data.attendance,
     advances: data.advances,
     violations: data.violations,
-    leaveRequests: [],
-    vacationRequests: [],
+    leaveRequests: data.leaveRequests || [],
+    vacationRequests: data.vacationRequests || [],
     bonuses: data.bonuses,
     summary: data.summary,
     pdfUrl,
@@ -979,74 +980,29 @@ async function getSalaryForPeriod(employeeId: number, month: unknown, year: unkn
 }
 
 async function buildSalaryPreview(employeeId: number, month: unknown, year: unknown) {
-  const employee = await getEmployeeById(employeeId);
-  if (!employee) return null;
-
   const normalizedMonth = String(month || '').padStart(2, '0');
   const numericYear = Number(year);
-  const salary = await getSalaryForPeriod(employeeId, normalizedMonth, numericYear);
-  if (salary) {
-    const complete = await getSalaryPdfData(Number(salary.id));
-    if (complete) {
-      const payload = toPayslipPayload(complete);
-      return {
-        ...payload,
-        ...payload?.summary,
-        bonuses: Number(payload?.summary?.bonusTotal || 0),
-        salaryId: complete.salary.id,
-        month: complete.salary.month,
-        year: complete.salary.year,
-      };
-    }
-  }
-
-  const baseSalary = Number(employee.baseSalary || 0);
+  const complete = await getSalaryPreviewData(employeeId, normalizedMonth, numericYear);
+  if (!complete) return null;
+  const payload = toPayslipPayload(complete);
+  const summary = complete.summary;
   return {
-    salary: {
-      id: null,
-      employeeId,
-      month: normalizedMonth,
-      year: numericYear,
-      baseSalary: String(baseSalary),
-      finalSalary: String(baseSalary),
-      status: 'pending',
-    },
-    employee,
-    companyName: 'DHD Livraison',
-    attendanceRecords: [],
-    advances: [],
-    violations: [],
-    leaveRequests: [],
-    vacationRequests: [],
-    bonusRecords: [],
-    summary: {
-      baseSalary,
-      presentDays: 0,
-      absentDays: 0,
-      lateDays: 0,
-      workedHours: 0,
-      overtimeHours: 0,
-      overtimeBonus: 0,
-      lateDeduction: 0,
-      advanceTotal: 0,
-      violationTotal: 0,
-      bonusTotal: 0,
-      otherDeductions: 0,
-      finalSalary: baseSalary,
-    },
-    baseSalary,
-    presentDays: 0,
-    absentDays: 0,
-    lateDays: 0,
-    workedHours: 0,
-    overtimeHours: 0,
-    overtimeBonus: 0,
-    lateDeductions: 0,
-    advanceDeductions: 0,
-    violationDeductions: 0,
-    otherDeductions: 0,
-    bonuses: 0,
-    finalSalary: baseSalary,
+    ...payload,
+    ...summary,
+    salaryId: complete.salary.id,
+    month: complete.salary.month,
+    year: complete.salary.year,
+    baseSalary: Number(summary.baseSalary || 0),
+    overtimeBonus: Number(summary.overtimeBonus || 0),
+    bonuses: Number(summary.bonusTotal || 0),
+    lateDeductions: Number(summary.lateDeduction || 0),
+    absenceDeductions: Number(summary.absenceDeduction || 0),
+    advanceDeductions: Number(summary.advanceTotal || 0),
+    violationDeductions: Number(summary.violationTotal || 0),
+    totalDeductions: Number(summary.totalDeductions || 0),
+    finalSalary: Number(summary.finalSalary || 0),
+    previewState: complete.salary.status === 'paid' ? 'paid' : 'review_before_payment',
+    previewPdfUrl: `/api/salaries/preview/pdf?employeeId=${employeeId}&month=${encodeURIComponent(normalizedMonth)}&year=${numericYear}`,
   };
 }
 
@@ -1087,11 +1043,29 @@ apiRouter.get('/salaries/preview', async (req, res) => {
     return res.status(400).json({ message: 'معرف الموظف غير صالح' });
   }
   const now = new Date();
-  const month = req.query.month || String(now.getMonth() + 1).padStart(2, '0');
-  const year = req.query.year || now.getFullYear();
+  const month = String(req.query.month || String(now.getMonth() + 1).padStart(2, '0')).padStart(2, '0');
+  const year = Number(req.query.year || now.getFullYear());
+  if (!/^(0[1-9]|1[0-2])$/.test(month) || !Number.isInteger(year) || year < 2000 || year > 2200) {
+    return res.status(400).json({ message: 'فترة الراتب غير صالحة' });
+  }
   const preview = await buildSalaryPreview(employeeId, month, year);
   if (!preview) return res.status(404).json({ message: 'الموظف غير موجود' });
   return res.json(preview);
+});
+
+apiRouter.get('/salaries/preview/pdf', async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const employeeId = Number(req.query.employeeId);
+  const month = String(req.query.month || '').padStart(2, '0');
+  const year = Number(req.query.year);
+  if (!Number.isInteger(employeeId) || employeeId <= 0 ||
+      !/^(0[1-9]|1[0-2])$/.test(month) ||
+      !Number.isInteger(year) || year < 2000 || year > 2200) {
+    return res.status(400).json({ message: 'بيانات فترة الراتب غير صالحة' });
+  }
+  const data = await getSalaryPreviewData(employeeId, month, year);
+  if (!data) return res.status(404).json({ message: 'الموظف غير موجود' });
+  return sendPayslipPdf(res, data, req.query.download === '1');
 });
 
 apiRouter.post('/salaries/single', async (req, res) => {
@@ -1102,12 +1076,18 @@ apiRouter.post('/salaries/single', async (req, res) => {
   }
   const existing = await getSalaryForPeriod(employeeId, req.body?.month, req.body?.year);
   if (existing) return res.json(existing);
-  const created = await createSalary({
-    ...req.body,
-    employeeId,
-  });
-  if (!created) return res.status(500).json({ message: 'تعذر إنشاء سجل الراتب' });
-  return res.status(201).json(created);
+  try {
+    const created = await createSalary({
+      ...req.body,
+      employeeId,
+    });
+    if (!created) return res.status(500).json({ message: 'تعذر إنشاء سجل الراتب' });
+    return res.status(201).json(created);
+  } catch (error) {
+    const concurrent = await getSalaryForPeriod(employeeId, req.body?.month, req.body?.year);
+    if (concurrent) return res.json(concurrent);
+    throw error;
+  }
 });
 
 apiRouter.post('/salaries/generate', async (req, res) => {
@@ -1140,7 +1120,17 @@ async function paySalary(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
   const s = await updateSalaryStatus(Number(req.params.id), 'paid');
   if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
-  return res.json({ ...s, ok: true });
+  return res.json({
+    ...s,
+    ok: true,
+    paymentRecord: {
+      salaryId: Number(s.id),
+      employeeId: Number(s.employeeId),
+      amount: Number(s.finalSalary || 0),
+      paidAt: s.paidAt,
+      status: s.status,
+    },
+  });
 }
 
 apiRouter.post('/salaries/:id/pay', paySalary);
@@ -1923,6 +1913,7 @@ function pdfFontPath(bold = false) {
 
 function sendPayslipPdf(res: express.Response, data: any, download = false) {
   const { salary, employee, summary } = data;
+  const isPaid = salary.status === 'paid';
   const employeeName = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
   const period = pdfMonth(salary.month, salary.year);
   const fileName = `كشف-راتب-${employee?.serialNumber || employee?.id || salary.id}-${salary.month}-${salary.year}.pdf`;
@@ -1930,9 +1921,9 @@ function sendPayslipPdf(res: express.Response, data: any, download = false) {
     size: 'A4',
     margins: { top: 42, bottom: 52, left: 42, right: 42 },
     info: {
-      Title: `كشف راتب - ${employeeName || 'موظف'} - ${period}`,
+      Title: `${isPaid ? 'كشف راتب' : 'معاينة كشف راتب قبل الدفع'} - ${employeeName || 'موظف'} - ${period}`,
       Author: data.companyName || 'DHD Livraison',
-      Subject: 'كشف راتب رسمي',
+      Subject: isPaid ? 'كشف راتب رسمي مدفوع' : 'معاينة كشف راتب غير مدفوعة',
     },
   });
 
@@ -2021,7 +2012,7 @@ function sendPayslipPdf(res: express.Response, data: any, download = false) {
   doc.font(pdfFontPath(true)).fontSize(19).fillColor('#FFFFFF');
   write(data.companyName || 'DHD Livraison', doc.page.margins.left + 98, headerY + 19, pageWidth - 120);
   doc.font(pdfFontPath(false)).fontSize(9).fillColor('#D9E8F7');
-  write('كشف راتب رسمي ومفصل', doc.page.margins.left + 98, headerY + 47, pageWidth - 120);
+  write(isPaid ? 'كشف راتب رسمي ومفصل' : 'معاينة كشف الراتب قبل الدفع — غير مدفوع', doc.page.margins.left + 98, headerY + 47, pageWidth - 120);
   write(`الفترة: ${period}`, doc.page.margins.left + 98, headerY + 64, pageWidth - 120);
   doc.y = headerY + 108;
 
@@ -2032,7 +2023,7 @@ function sendPayslipPdf(res: express.Response, data: any, download = false) {
     ['المسمى الوظيفي', employee?.position || employee?.role],
     ['المكتب', employee?.officeName],
     ['فترة الكشف', period],
-    ['حالة الراتب', salary.status === 'paid' ? 'مدفوع' : salary.status === 'postponed' ? 'مؤجل' : 'معلق'],
+    ['حالة الراتب', isPaid ? 'مدفوع ومقفل' : salary.status === 'postponed' ? 'مؤجل — قيد المراجعة' : 'قيد المراجعة قبل الدفع'],
   ];
   const infoWidth = pageWidth / 2;
   infoColumns.forEach(([label, value], index) => {
@@ -2099,9 +2090,11 @@ function sendPayslipPdf(res: express.Response, data: any, download = false) {
     ['الوقت الإضافي', `+ ${pdfAmount(summary.overtimeBonus)}`, green],
     ['الزيادات / المكافآت', `+ ${pdfAmount(summary.bonusTotal)}`, green],
     ['خصم التأخير', `- ${pdfAmount(summary.lateDeduction)}`, red],
+    ['خصم الغياب', `- ${pdfAmount(summary.absenceDeduction)}`, red],
     ['خصم السلف', `- ${pdfAmount(summary.advanceTotal)}`, red],
     ['خصم المخالفات', `- ${pdfAmount(summary.violationTotal)}`, red],
     ['خصومات أخرى', `- ${pdfAmount(summary.otherDeductions)}`, red],
+    ['إجمالي الخصومات', `- ${pdfAmount(summary.totalDeductions)}`, navy],
   ];
   breakdownRows.forEach(([label, amount, color]) => tableRow([label, amount], breakdownColumns, color));
   tableRow(['صافي الراتب النهائي', pdfAmount(summary.finalSalary)], breakdownColumns, navy);
@@ -2134,11 +2127,29 @@ function sendPayslipPdf(res: express.Response, data: any, download = false) {
     violation.reason || violation.notes,
     `- ${pdfAmount(violation.amount)}`,
   ]), 'لا توجد مخالفات أو خصومات مسجلة');
+  const absenceRecords = (data.attendance || []).filter((record: any) => record.isAbsent);
+  const absenceRate = absenceRecords.length > 0
+    ? Number(summary.absenceDeduction || 0) / absenceRecords.length
+    : 0;
+  detailTable('تفاصيل الغياب', [
+    { label: 'التاريخ', width: pageWidth * 0.25 },
+    { label: 'السبب / الملاحظة', width: pageWidth * 0.50 },
+    { label: 'خصم الغياب', width: pageWidth * 0.25 },
+  ], absenceRecords.map((record: any) => [
+    pdfDate(record.date),
+    record.notes || 'غياب مسجل',
+    `- ${pdfAmount(absenceRate)}`,
+  ]), 'لا توجد أيام غياب مسجلة');
 
   const footerY = doc.page.height - 42;
   line(footerY - 8, navy);
   doc.font(pdfFontPath(false)).fontSize(8).fillColor(muted);
-  write(`تاريخ إصدار الكشف: ${new Date().toLocaleDateString('ar-DZ')}   |   رقم الكشف: #${salary.id}`, doc.page.margins.left, footerY, pageWidth);
+  write(
+    `تاريخ إصدار الكشف: ${new Date().toLocaleDateString('ar-DZ')}   |   ${salary.id ? `رقم الكشف: #${salary.id}` : 'معاينة قبل إنشاء سجل الدفع'}${isPaid ? '' : '   |   هذه المعاينة لا تثبت الدفع'}`,
+    doc.page.margins.left,
+    footerY,
+    pageWidth,
+  );
   doc.end();
   return res;
 }

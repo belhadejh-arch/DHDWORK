@@ -1,5 +1,5 @@
 import { getDb, offices, employees, attendance, advances, bonuses, violations, salaries, leaveRequests, vacationRequests, notifications, settings, admins, announcements, announcementRecipients, announcementReads, pushSubscriptions, sessions } from "../../../lib/db/src/index.js";
-import { eq, and, asc, desc, sql, like, or, isNull, gt } from "drizzle-orm";
+import { eq, and, asc, desc, sql, like, or, isNull, gt, ne } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -705,45 +705,60 @@ export async function seedOfficialOffices() {
   }
 }
 
-// Get full salary data for PDF payslip
-export async function getSalaryPdfData(salaryId: number) {
-  const salary = await getSalaryById(salaryId);
-  if (!salary) return null;
-  const emp = await getEmployeeById(Number(salary.employeeId));
-  const db = getDb();
+async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any, database?: any) {
+  const salary = { ...salaryRecord };
+  const emp = employeeRecord || await getEmployeeById(Number(salary.employeeId));
+  if (!emp) return null;
+  const db = database || getDb();
 
-  const [allViolations, allAdvances, allAttendance, allBonuses] = await Promise.all([
-    db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId))),
-    db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId))),
-    db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId))),
-    db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)))
-  ]);
+  // Keep these reads sequential: during payment they share one transaction
+  // client and must represent one consistent PostgreSQL snapshot.
+  const allViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId)));
+  const allAdvances = await db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId)));
+  const allAttendance = await db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)));
+  const allBonuses = await db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)));
+  const allLeaves = await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, Number(salary.employeeId)));
+  const allVacations = await db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, Number(salary.employeeId)));
+  const settingsRows = await db.select().from(settings);
+  const settingsRecord = settingsRows[0] || memoryStore.settings;
 
   const monthPrefix = `${salary.year}-${String(salary.month).padStart(2, "0")}`;
+  const periodStart = `${monthPrefix}-01`;
+  const periodEndDate = new Date(Date.UTC(Number(salary.year), Number(salary.month), 0));
+  const periodEnd = periodEndDate.toISOString().slice(0, 10);
   const inSalaryPeriod = (dateValue: unknown) => {
     const normalized = dateValue instanceof Date ? dateValue.toISOString() : String(dateValue || "");
     return normalized.startsWith(monthPrefix);
   };
+  const linkedToSalary = (record: any) =>
+    salary.id != null && Number(record.salaryId) === Number(salary.id);
   const monthViolations = allViolations.filter((v: any) =>
-    Number(v.salaryId) === Number(salary.id) ||
+    linkedToSalary(v) ||
     (v.salaryId == null && inSalaryPeriod(v.violationDate || v.createdAt))
   );
   const approvedAdvances = allAdvances.filter((a: any) =>
     a.status === "approved" &&
-    (Number(a.salaryId) === Number(salary.id) || inSalaryPeriod(a.requestedAt || a.createdAt))
+    (linkedToSalary(a) || (a.salaryId == null && inSalaryPeriod(a.requestedAt || a.createdAt)))
   );
   const monthAttendance = allAttendance.filter((a: any) => String(a.date || "").startsWith(monthPrefix));
   const monthBonuses = allBonuses.filter((b: any) =>
     (b.status === 'approved' || b.status == null) && (
-      Number(b.salaryId) === Number(salary.id) ||
+      linkedToSalary(b) ||
       (b.salaryId == null && inSalaryPeriod(b.date || b.createdAt))
     )
   );
+  const overlapsPeriod = (request: any) => {
+    const start = String(request.startDate || "").slice(0, 10);
+    const end = String(request.endDate || request.startDate || "").slice(0, 10);
+    return request.status === "approved" && start <= periodEnd && end >= periodStart;
+  };
+  const approvedLeaves = allLeaves.filter(overlapsPeriod);
+  const approvedVacations = allVacations.filter(overlapsPeriod);
 
   const attendancePresentDays = monthAttendance.filter((a: any) => !a.isAbsent && (a.checkInTime || a.checkOutTime)).length;
   const attendanceAbsentDays = monthAttendance.filter((a: any) => a.isAbsent).length;
-  const presentDays = monthAttendance.length > 0 ? attendancePresentDays : Number(salary.presentDays ?? 0);
-  const absentDays = monthAttendance.length > 0 ? attendanceAbsentDays : Number(salary.absentDays ?? 0);
+  const presentDays = attendancePresentDays;
+  const absentDays = attendanceAbsentDays;
   const violationTotalFromRecords = monthViolations.reduce((s: number, v: any) => s + Number(v.amount || 0), 0);
   const advanceTotalFromRecords = approvedAdvances.reduce((s: number, a: any) => s + Number(a.amount || 0), 0);
   const bonusTotalFromRecords = monthBonuses.reduce((s: number, b: any) => s + Number(b.amount || 0), 0);
@@ -759,24 +774,52 @@ export async function getSalaryPdfData(salaryId: number) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
-  const baseSalary = numberOr(salary.baseSalary, numberOr(emp?.baseSalary, 0));
-  const violationTotal = numberOr(salary.violationDeductions, violationTotalFromRecords);
-  const advanceTotal = numberOr(salary.advanceDeductions, advanceTotalFromRecords);
-  const lateDeduction = numberOr(salary.lateDeductions, attendanceLateDeduction);
-  const overtimeBonus = numberOr(salary.overtimeBonus, attendanceOvertimeBonus);
-  const bonusTotal = numberOr(salary.bonuses, bonusTotalFromRecords);
-  const otherDeductions = numberOr(salary.otherDeductions, 0);
-  const computedFinalSalary = baseSalary + overtimeBonus + bonusTotal - lateDeduction - advanceTotal - violationTotal - otherDeductions;
-  const finalSalary = numberOr(salary.finalSalary, computedFinalSalary);
-  const settingsRecord = await getSettings();
+  const isPaidSnapshot = salary.status === "paid";
+  const baseSalary = isPaidSnapshot
+    ? numberOr(salary.baseSalary, numberOr(emp.baseSalary, 0))
+    : numberOr(emp.baseSalary, numberOr(salary.baseSalary, 0));
+  const violationTotal = isPaidSnapshot ? numberOr(salary.violationDeductions, violationTotalFromRecords) : violationTotalFromRecords;
+  const advanceTotal = isPaidSnapshot ? numberOr(salary.advanceDeductions, advanceTotalFromRecords) : advanceTotalFromRecords;
+  const lateDeduction = isPaidSnapshot ? numberOr(salary.lateDeductions, attendanceLateDeduction) : attendanceLateDeduction;
+  const overtimeBonus = isPaidSnapshot ? numberOr(salary.overtimeBonus, attendanceOvertimeBonus) : attendanceOvertimeBonus;
+  const bonusTotal = isPaidSnapshot ? numberOr(salary.bonuses, bonusTotalFromRecords) : bonusTotalFromRecords;
+  const calculatedAbsenceDeduction = absentDays * Number(settingsRecord?.absenceDeductionAmount || 0);
+  // The legacy schema has no dedicated absence column. Persist the frozen
+  // absence amount in other_deductions, but expose it explicitly everywhere.
+  const absenceDeduction = isPaidSnapshot
+    ? numberOr(salary.otherDeductions, calculatedAbsenceDeduction)
+    : calculatedAbsenceDeduction;
+  const otherDeductions = 0;
+  const totalDeductions = lateDeduction + absenceDeduction + advanceTotal + violationTotal + otherDeductions;
+  const computedFinalSalary = baseSalary + overtimeBonus + bonusTotal - totalDeductions;
+  const finalSalary = isPaidSnapshot ? numberOr(salary.finalSalary, computedFinalSalary) : computedFinalSalary;
+  const calculatedSalary = {
+    ...salary,
+    baseSalary: String(baseSalary),
+    presentDays,
+    absentDays,
+    workedHours: String(workedMinutes / 60),
+    overtimeHours: String(overtimeMinutes / 60),
+    overtimeBonus: String(overtimeBonus),
+    lateDeductions: String(lateDeduction),
+    absenceDeductions: String(absenceDeduction),
+    advanceDeductions: String(advanceTotal),
+    violationDeductions: String(violationTotal),
+    bonuses: String(bonusTotal),
+    otherDeductions: String(absenceDeduction + otherDeductions),
+    totalDeductions: String(totalDeductions),
+    finalSalary: String(finalSalary),
+  };
 
   return {
-    salary,
+    salary: calculatedSalary,
     employee: emp,
     violations: monthViolations,
     advances: approvedAdvances,
     attendance: monthAttendance,
     bonuses: monthBonuses,
+    leaveRequests: approvedLeaves,
+    vacationRequests: approvedVacations,
     companyName: settingsRecord?.companyName || "DHD Livraison",
     summary: {
       presentDays,
@@ -789,13 +832,60 @@ export async function getSalaryPdfData(salaryId: number) {
       violationTotal,
       advanceTotal,
       lateDeduction,
+      absenceDeduction,
       overtimeBonus,
       bonusTotal,
       otherDeductions,
+      totalDeductions,
+      grossSalary: baseSalary + overtimeBonus + bonusTotal,
       baseSalary,
-      finalSalary
+      finalSalary,
+      isPaid: isPaidSnapshot,
+      calculatedAt: new Date().toISOString(),
     }
   };
+}
+
+// Get full salary data for a persisted PDF payslip.
+export async function getSalaryPdfData(salaryId: number) {
+  const salary = await getSalaryById(salaryId);
+  if (!salary) return null;
+  if (salary.status === "paid" && salary.snapshot) {
+    try {
+      return JSON.parse(String(salary.snapshot));
+    } catch {
+      // Legacy paid rows without a valid snapshot still use their frozen totals.
+    }
+  }
+  return calculateSalaryPeriodData(salary);
+}
+
+// Build the same complete payslip from PostgreSQL without creating or paying a
+// salary record. If an open record exists, live data overrides its old totals.
+export async function getSalaryPreviewData(employeeId: number, month: string, year: number) {
+  const emp = await getEmployeeById(employeeId);
+  if (!emp) return null;
+  const normalizedMonth = String(month).padStart(2, "0");
+  const db = getDb();
+  const rows = await db.select().from(salaries).where(and(
+    eq(salaries.employeeId, employeeId),
+    eq(salaries.year, year),
+  ));
+  const existing = rows
+    .filter((record: any) => String(record.month).padStart(2, "0") === normalizedMonth)
+    .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
+  if (existing?.status === "paid") return getSalaryPdfData(Number(existing.id));
+  const salary = existing || {
+    id: null,
+    employeeId,
+    month: normalizedMonth,
+    year,
+    baseSalary: emp.baseSalary,
+    status: "pending",
+    paidAt: null,
+    createdAt: null,
+  };
+  return calculateSalaryPeriodData(salary, emp);
 }
 
 async function refreshOpenSalaryCalculations(employeeId: number) {
@@ -825,7 +915,7 @@ async function refreshOpenSalaryCalculations(employeeId: number) {
       advanceDeductions: String(Number(summary.advanceTotal || 0)),
       violationDeductions: String(Number(summary.violationTotal || 0)),
       bonuses: String(Number(summary.bonusTotal || 0)),
-      otherDeductions: String(Number(summary.otherDeductions || 0)),
+      otherDeductions: String(Number(summary.absenceDeduction || 0) + Number(summary.otherDeductions || 0)),
       finalSalary: String(Number(summary.finalSalary || 0)),
     }).where(eq(salaries.id, Number(record.id)));
   }
@@ -1348,6 +1438,7 @@ export async function createBonus(data: any) {
     })
     .returning();
   if (!record) throw new Error("تعذر إضافة الزيادة");
+  await refreshOpenSalaryCalculations(employeeId);
   const employee = await getEmployeeById(employeeId);
   return {
     ...record,
@@ -1363,6 +1454,7 @@ export async function deleteBonus(id: number) {
     const db = getDb();
     if (db) {
       const [deleted] = await db.delete(bonuses).where(eq(bonuses.id, Number(id))).returning();
+      if (deleted) await refreshOpenSalaryCalculations(Number(deleted.employeeId));
       return deleted || null;
     }
   } catch (err) {
@@ -1382,6 +1474,7 @@ export async function updateBonus(id: number, data: any) {
       if (data.date !== undefined) update.date = data.date;
       if (data.status !== undefined) update.status = data.status;
       const [updated] = await db.update(bonuses).set(update).where(eq(bonuses.id, Number(id))).returning();
+      if (updated) await refreshOpenSalaryCalculations(Number(updated.employeeId));
       return updated || null;
     }
   } catch (err) {
@@ -1763,12 +1856,15 @@ export async function updateAttendance(id: number, data: any) {
   if (data.isAbsent !== undefined) updateData.isAbsent = data.isAbsent;
   if (data.notes !== undefined) updateData.notes = data.notes;
   const [updated] = await db.update(attendance).set(updateData).where(eq(attendance.id, Number(id))).returning();
+  if (updated) await refreshOpenSalaryCalculations(Number(updated.employeeId));
   return updated ? formatAttendanceRecord(updated, existing.employee, existing.office) : null;
 }
 
 export async function deleteAttendance(id: number) {
   const db = getDb();
+  const current = await getAttendanceById(id);
   const deleted = await db.delete(attendance).where(eq(attendance.id, Number(id))).returning({ id: attendance.id });
+  if (deleted.length && current) await refreshOpenSalaryCalculations(Number(current.employeeId));
   return deleted.length > 0;
 }
 
@@ -1783,6 +1879,10 @@ export async function updateViolation(id: number, data: any) {
   const db = getDb();
   const current = await db.select().from(violations).where(eq(violations.id, Number(id))).limit(1);
   if (!current[0]) return null;
+  if (current[0].salaryId) {
+    const [linkedSalary] = await db.select().from(salaries).where(eq(salaries.id, Number(current[0].salaryId))).limit(1);
+    if (linkedSalary?.status === "paid") throw new Error("لا يمكن تعديل مخالفة مرتبطة براتب مدفوع");
+  }
   const oldAmount = Number(current[0].amount || 0);
   const nextAmount = data.amount !== undefined || data.deductionAmount !== undefined
     ? Number(data.amount ?? data.deductionAmount ?? 0)
@@ -1822,6 +1922,10 @@ export async function updateViolation(id: number, data: any) {
 export async function deleteViolation(id: number) {
   const db = getDb();
   const current = await getViolationById(id);
+  if (current?.salaryId) {
+    const [linkedSalary] = await db.select().from(salaries).where(eq(salaries.id, Number(current.salaryId))).limit(1);
+    if (linkedSalary?.status === "paid") throw new Error("لا يمكن حذف مخالفة مرتبطة براتب مدفوع");
+  }
   const deleted = await db.delete(violations).where(eq(violations.id, Number(id))).returning({ id: violations.id });
   if (deleted.length && current) await refreshOpenSalaryCalculations(Number(current.employeeId));
   return deleted.length > 0;
@@ -1862,7 +1966,7 @@ export async function createSalary(data: any) {
     advanceDeductions: String(Number(summary.advanceTotal || 0)),
     violationDeductions: String(Number(summary.violationTotal || 0)),
     bonuses: String(Number(summary.bonusTotal || 0)),
-    otherDeductions: String(Number(summary.otherDeductions || 0)),
+    otherDeductions: String(Number(summary.absenceDeduction || 0) + Number(summary.otherDeductions || 0)),
     finalSalary: String(Number(summary.finalSalary || 0)),
   }).where(eq(salaries.id, Number(record.id))).returning();
   return updated ? { ...updated, employeeName: `${emp.firstName} ${emp.lastName}` } : null;
@@ -1870,9 +1974,82 @@ export async function createSalary(data: any) {
 
 export async function updateSalaryStatus(id: number, status: string, extra?: any) {
   const db = getDb();
-  const [before] = await db.select().from(salaries).where(eq(salaries.id, Number(id)));
+  let [before] = await db.select().from(salaries).where(eq(salaries.id, Number(id)));
+  if (!before) return null;
+  if (before.status === "paid") return before;
+  if (status === "paid") {
+    const finalizePayment = () => db.transaction(async (tx: any) => {
+      const [locked] = await tx.select().from(salaries)
+        .where(eq(salaries.id, Number(id))).for("update").limit(1);
+      if (!locked) return { paid: null, transitioned: false, notification: null };
+      if (locked.status === "paid") return { paid: locked, transitioned: false, notification: null };
+      const [employee] = await tx.select().from(employees)
+        .where(eq(employees.id, Number(locked.employeeId))).limit(1);
+      const frozen = await calculateSalaryPeriodData(locked, employee, tx);
+      if (!frozen) return { paid: null, transitioned: false, notification: null };
+      const summary = frozen.summary;
+      const paidAt = new Date();
+      const frozenSalary = { ...frozen.salary, status: "paid", paidAt };
+      const snapshot = { ...frozen, salary: frozenSalary, summary: { ...summary, isPaid: true } };
+      const [paid] = await tx.update(salaries).set({
+        baseSalary: String(summary.baseSalary || 0),
+        presentDays: Number(summary.presentDays || 0),
+        absentDays: Number(summary.absentDays || 0),
+        workedHours: String(Number(summary.workedHours || 0)),
+        overtimeHours: String(Number(summary.overtimeHours || 0)),
+        overtimeBonus: String(Number(summary.overtimeBonus || 0)),
+        lateDeductions: String(Number(summary.lateDeduction || 0)),
+        advanceDeductions: String(Number(summary.advanceTotal || 0)),
+        violationDeductions: String(Number(summary.violationTotal || 0)),
+        bonuses: String(Number(summary.bonusTotal || 0)),
+        otherDeductions: String(Number(summary.absenceDeduction || 0) + Number(summary.otherDeductions || 0)),
+        finalSalary: String(Number(summary.finalSalary || 0)),
+        status: "paid",
+        paidAt,
+        snapshot: JSON.stringify(snapshot),
+      }).where(and(eq(salaries.id, Number(id)), ne(salaries.status, "paid"))).returning();
+      let paymentNotification = null;
+      if (paid) {
+        [paymentNotification] = await tx.insert(notifications).values({
+          type: "salary_paid",
+          message: "تم صرف راتبك وإصدار كشف الراتب",
+          recipientType: "employee",
+          recipientEmployeeId: Number(paid.employeeId),
+          referenceId: Number(paid.id),
+          referenceIdType: "salary",
+          isRead: false,
+          createdAt: new Date(),
+        }).returning();
+      }
+      return { paid: paid || locked, transitioned: Boolean(paid), notification: paymentNotification };
+    }, { isolationLevel: "serializable" });
+    let result: { paid: any; transitioned: boolean; notification: any } | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        result = await finalizePayment();
+        break;
+      } catch (error: any) {
+        const errorCode = error?.code || error?.cause?.code;
+        if (errorCode !== "40001") throw error;
+        const [winner] = await db.select().from(salaries).where(eq(salaries.id, Number(id))).limit(1);
+        if (winner?.status === "paid") return winner;
+      }
+    }
+    if (!result) {
+      const [winner] = await db.select().from(salaries).where(eq(salaries.id, Number(id))).limit(1);
+      return winner?.status === "paid" ? winner : null;
+    }
+    const paid = result.paid;
+    if (!paid) return null;
+    if (!result.transitioned) return paid;
+    if (result.notification) {
+      void sendPushNotification(result.notification).catch((error) => {
+        console.warn("salary payment push delivery failed:", error);
+      });
+    }
+    return paid;
+  }
   const updateData: any = { status };
-  if (status === 'paid') updateData.paidAt = new Date();
   if (extra?.postponedUntil) updateData.postponedUntil = new Date(extra.postponedUntil);
   const [updated] = await db.update(salaries).set(updateData).where(eq(salaries.id, Number(id))).returning();
   if (updated && before && before.status !== status && (status === 'paid' || status === 'postponed')) {

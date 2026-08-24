@@ -7,3 +7,4 @@
 - [DHD PDF opening](dhd-pdf-opening.md) — PDF actions must fetch a validated blob or use a short-lived token URL so auth headers and popup blockers do not break opening.
 - [DHD Vite entry file](dhd-vite-entry.md) — runtime extensions must be linked from the artifact-root index.html; public/index.html is not Vite's development entry.
 - [DHD admin extensions and auth](dhd-admin-extension-auth.md) — global admin scripts load before login; never permanently cache an unauthenticated /auth/me result.
+- [DHD salary finalization](dhd-salary-finalization.md) — unpaid reviews are live; payment is idempotent and freezes an immutable payslip snapshot.

@@ -133,7 +133,10 @@ export const salaries = pgTable("salaries", {
   paidAt: timestamp("paid_at"),
   postponedUntil: timestamp("postponed_until"),
   createdAt: timestamp("created_at"),
-});
+  snapshot: text("snapshot"),
+}, (table) => ({
+  employeePeriodUnique: uniqueIndex("salaries_employee_period_unique").on(table.employeeId, table.month, table.year),
+}));
 
 export const leaveRequests = pgTable("leave_requests", {
   id: serial("id").primaryKey(),
@@ -211,11 +214,15 @@ export const announcementReads = pgTable("announcement_reads", {
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
   lateDeductionAmount: numeric("late_deduction_amount"),
+  first15MinLateDeduction: numeric("first_15_min_late_deduction"),
+  hourlyLateDeduction: numeric("hourly_late_deduction"),
+  absenceDeductionAmount: numeric("absence_deduction_amount"),
   overtimeHourlyRate: numeric("overtime_hourly_rate"),
   paymentDayOfMonth: integer("payment_day_of_month"),
   lateThresholdMinutes: integer("late_threshold_minutes"),
   language: text("language"),
   darkMode: boolean("dark_mode"),
+  updatedAt: timestamp("updated_at"),
 });
 
 export const sessions = pgTable("sessions", {
