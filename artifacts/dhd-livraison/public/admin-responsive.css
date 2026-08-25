@@ -1441,3 +1441,48 @@ body,
     touch-action: pan-y;
   }
 }
+
+/*
+ * On phones, use one native document scroller instead of a fixed-height
+ * shell with a nested scroller. Nested touch scrollers can lose the upward
+ * gesture in mobile browsers when they reach a boundary.
+ */
+@media (max-width: 767px) {
+  html,
+  body {
+    height: auto !important;
+    min-height: 100%;
+    overflow-y: auto !important;
+    overscroll-behavior-y: none;
+  }
+
+  #root {
+    min-height: 100dvh;
+    height: auto !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] {
+    height: auto !important;
+    min-height: 100dvh !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main {
+    display: block;
+    height: auto !important;
+    min-height: 100dvh !important;
+    overflow: visible !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > div.flex-1.overflow-y-auto {
+    display: block;
+    flex: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overscroll-behavior-y: none;
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  }
+}
