@@ -15,6 +15,16 @@
     <meta name="theme-color" content="#FF8C00" />
     <title>DHD Livraison</title>
     <meta name="description" content="نظام إدارة الموارد البشرية لشركة DHD للتوصيل" />
+    <!-- Wake the Render API while the static app assets are loading. This is
+         intentionally fire-and-forget so it never blocks the first paint. -->
+    <script>
+      window.fetch('/api/healthz', {
+        method: 'GET',
+        credentials: 'omit',
+        cache: 'no-store',
+        keepalive: true
+      }).catch(function () {});
+    </script>
 
     <!-- ── Favicons ── -->
     <link rel="shortcut icon" href="/favicon.ico" />
