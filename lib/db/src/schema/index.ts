@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, date, boolean, numeric, primaryKey, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, date, boolean, numeric, primaryKey, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 export const admins = pgTable("admins", {
   id: serial("id").primaryKey(),
@@ -14,6 +14,7 @@ export const admins = pgTable("admins", {
   phone: text("phone"),
 }, (table) => ({
   serialNumberUnique: uniqueIndex("admins_serial_number_unique").on(table.serialNumber),
+  emailIdx: index("admins_email_idx").on(table.email),
 }));
 
 export const offices = pgTable("offices", {
@@ -24,7 +25,9 @@ export const offices = pgTable("offices", {
   longitude: numeric("longitude"),
   createdAt: timestamp("created_at"),
   qrCodeData: text("qr_code_data"),
-});
+}, (table) => ({
+  createdAtIdx: index("offices_created_at_idx").on(table.createdAt),
+}));
 
 export const employees = pgTable("employees", {
   id: serial("id").primaryKey(),
@@ -49,7 +52,12 @@ export const employees = pgTable("employees", {
   deletionReason: text("deletion_reason"),
   isUnrestricted: boolean("is_unrestricted"),
   restDays: text("rest_days"),
-});
+}, (table) => ({
+  officeIdIdx: index("employees_office_id_idx").on(table.officeId),
+  isActiveIdx: index("employees_is_active_idx").on(table.isActive),
+  serialNumberIdx: index("employees_serial_number_idx").on(table.serialNumber),
+  createdAtIdx: index("employees_created_at_idx").on(table.createdAt),
+}));
 
 export const attendance = pgTable("attendance", {
   id: serial("id").primaryKey(),
@@ -72,6 +80,10 @@ export const attendance = pgTable("attendance", {
   createdAt: timestamp("created_at"),
 }, (table) => ({
   employeeDateUnique: uniqueIndex("attendance_employee_date_unique").on(table.employeeId, table.date),
+  employeeIdIdx: index("attendance_employee_id_idx").on(table.employeeId),
+  officeIdIdx: index("attendance_office_id_idx").on(table.officeId),
+  dateIdx: index("attendance_date_idx").on(table.date),
+  createdAtIdx: index("attendance_created_at_idx").on(table.createdAt),
 }));
 
 export const advances = pgTable("advances", {
@@ -85,7 +97,11 @@ export const advances = pgTable("advances", {
   resolvedAt: timestamp("resolved_at"),
   adminNote: text("admin_note"),
   salaryId: integer("salary_id"),
-});
+}, (table) => ({
+  employeeIdIdx: index("advances_employee_id_idx").on(table.employeeId),
+  statusIdx: index("advances_status_idx").on(table.status),
+  requestedAtIdx: index("advances_requested_at_idx").on(table.requestedAt),
+}));
 
 export const bonuses = pgTable("bonuses", {
   id: serial("id").primaryKey(),
@@ -97,7 +113,11 @@ export const bonuses = pgTable("bonuses", {
   salaryId: integer("salary_id"),
   status: text("status"),
   createdAt: timestamp("created_at"),
-});
+}, (table) => ({
+  employeeIdIdx: index("bonuses_employee_id_idx").on(table.employeeId),
+  statusIdx: index("bonuses_status_idx").on(table.status),
+  createdAtIdx: index("bonuses_created_at_idx").on(table.createdAt),
+}));
 
 export const violations = pgTable("violations", {
   id: serial("id").primaryKey(),
@@ -112,7 +132,11 @@ export const violations = pgTable("violations", {
   violationType: text("violation_type"),
   violationDate: date("violation_date"),
   violationTime: text("violation_time"),
-});
+}, (table) => ({
+  employeeIdIdx: index("violations_employee_id_idx").on(table.employeeId),
+  statusIdx: index("violations_status_idx").on(table.status),
+  createdAtIdx: index("violations_created_at_idx").on(table.createdAt),
+}));
 
 export const salaries = pgTable("salaries", {
   id: serial("id").primaryKey(),
@@ -138,6 +162,9 @@ export const salaries = pgTable("salaries", {
   snapshot: text("snapshot"),
 }, (table) => ({
   employeePeriodUnique: uniqueIndex("salaries_employee_period_unique").on(table.employeeId, table.month, table.year),
+  employeeIdIdx: index("salaries_employee_id_idx").on(table.employeeId),
+  statusIdx: index("salaries_status_idx").on(table.status),
+  periodIdx: index("salaries_period_idx").on(table.year, table.month),
 }));
 
 export const leaveRequests = pgTable("leave_requests", {
@@ -152,7 +179,11 @@ export const leaveRequests = pgTable("leave_requests", {
   requestedAt: timestamp("requested_at"),
   resolvedAt: timestamp("resolved_at"),
   adminNote: text("admin_note"),
-});
+}, (table) => ({
+  employeeIdIdx: index("leave_requests_employee_id_idx").on(table.employeeId),
+  statusIdx: index("leave_requests_status_idx").on(table.status),
+  requestedAtIdx: index("leave_requests_requested_at_idx").on(table.requestedAt),
+}));
 
 export const vacationRequests = pgTable("vacation_requests", {
   id: serial("id").primaryKey(),
@@ -165,7 +196,11 @@ export const vacationRequests = pgTable("vacation_requests", {
   requestedAt: timestamp("requested_at"),
   resolvedAt: timestamp("resolved_at"),
   adminNote: text("admin_note"),
-});
+}, (table) => ({
+  employeeIdIdx: index("vacation_requests_employee_id_idx").on(table.employeeId),
+  statusIdx: index("vacation_requests_status_idx").on(table.status),
+  requestedAtIdx: index("vacation_requests_requested_at_idx").on(table.requestedAt),
+}));
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
@@ -177,7 +212,11 @@ export const notifications = pgTable("notifications", {
   referenceIdType: text("reference_type"),
   isRead: boolean("is_read"),
   createdAt: timestamp("created_at"),
-});
+}, (table) => ({
+  recipientEmployeeIdIdx: index("notifications_recipient_employee_id_idx").on(table.recipientEmployeeId),
+  isReadIdx: index("notifications_is_read_idx").on(table.isRead),
+  createdAtIdx: index("notifications_created_at_idx").on(table.createdAt),
+}));
 
 export const announcements = pgTable("announcements", {
   id: serial("id").primaryKey(),
@@ -193,7 +232,10 @@ export const announcements = pgTable("announcements", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   targetAll: boolean("target_all").notNull().default(false),
-});
+}, (table) => ({
+  isActiveIdx: index("announcements_is_active_idx").on(table.isActive),
+  createdAtIdx: index("announcements_created_at_idx").on(table.createdAt),
+}));
 
 export const announcementRecipients = pgTable("announcement_recipients", {
   id: serial("id").primaryKey(),
@@ -203,7 +245,10 @@ export const announcementRecipients = pgTable("announcement_recipients", {
   readAt: timestamp("read_at"),
   dismissedAt: timestamp("dismissed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  announcementIdIdx: index("announcement_recipients_announcement_id_idx").on(table.announcementId),
+  employeeIdIdx: index("announcement_recipients_employee_id_idx").on(table.employeeId),
+}));
 
 export const announcementReads = pgTable("announcement_reads", {
   announcementId: integer("announcement_id").notNull(),
@@ -211,6 +256,7 @@ export const announcementReads = pgTable("announcement_reads", {
   readAt: timestamp("read_at").notNull().defaultNow(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.announcementId, table.employeeId] }),
+  employeeIdIdx: index("announcement_reads_employee_id_idx").on(table.employeeId),
 }));
 
 export const settings = pgTable("settings", {
@@ -234,7 +280,10 @@ export const sessions = pgTable("sessions", {
   userId: integer("user_id"),
   createdAt: timestamp("created_at"),
   expiresAt: timestamp("expires_at"),
-});
+}, (table) => ({
+  tokenIdx: index("sessions_token_idx").on(table.token),
+  userIdIdx: index("sessions_user_id_idx").on(table.userId),
+}));
 
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: serial("id").primaryKey(),
@@ -245,4 +294,6 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   employeeId: integer("employee_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  employeeIdIdx: index("push_subscriptions_employee_id_idx").on(table.employeeId),
+}));
