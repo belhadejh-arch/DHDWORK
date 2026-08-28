@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'path';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -13,12 +14,52 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH ?? '/';
+const legacyPublicDir = path.resolve(import.meta.dirname, '..', '..', '.migration-backup', 'public');
+
+function legacyPublicAssets() {
+  return {
+    name: 'dhd-legacy-public-assets',
+    configureServer(server: { middlewares: { use: (handler: (req: any, res: any, next: () => void) => void) => void } }) {
+      server.middlewares.use((request, response, next) => {
+        const requestPath = request.url?.split('?')[0] ?? '/';
+        let decodedPath = requestPath;
+        try {
+          decodedPath = decodeURIComponent(requestPath);
+        } catch {
+          next();
+          return;
+        }
+        const candidate = path.resolve(legacyPublicDir, `.${decodedPath}`);
+        if (!candidate.startsWith(`${legacyPublicDir}${path.sep}`) || !fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+          next();
+          return;
+        }
+        const extension = path.extname(candidate).toLowerCase();
+        const contentTypes: Record<string, string> = {
+          '.css': 'text/css; charset=utf-8',
+          '.js': 'text/javascript; charset=utf-8',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.svg': 'image/svg+xml',
+          '.ico': 'image/x-icon',
+          '.webmanifest': 'application/manifest+json',
+          '.mp3': 'audio/mpeg',
+        };
+        response.setHeader('Content-Type', contentTypes[extension] ?? 'application/octet-stream');
+        response.setHeader('Cache-Control', 'public, max-age=86400');
+        fs.createReadStream(candidate).pipe(response);
+      });
+    },
+  };
+}
 
 export default defineConfig({
   base: basePath,
   plugins: [
     react(),
     tailwindcss(),
+    legacyPublicAssets(),
     runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== 'production' &&
     process.env.REPL_ID !== undefined
