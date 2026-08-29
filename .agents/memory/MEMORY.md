@@ -8,3 +8,4 @@
 - [DHD Vite entry file](dhd-vite-entry.md) — runtime extensions must be linked from the artifact-root index.html; public/index.html is not Vite's development entry.
 - [DHD admin extensions and auth](dhd-admin-extension-auth.md) — global admin scripts load before login; never permanently cache an unauthenticated /auth/me result.
 - [DHD salary finalization](dhd-salary-finalization.md) — unpaid reviews are live; payment is idempotent and freezes an immutable payslip snapshot.
+- [DHD imported workspace startup](dhd-imported-workspace-startup.md) — after imports, install from the frozen pnpm lockfile and verify the artifact-root Vite entry before debugging runtime UI.
