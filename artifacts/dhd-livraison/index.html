@@ -2,57 +2,46 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <!-- iOS WebView / WKWebView -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="DHD Livraison" />
-    <!-- Android WebView / Chrome Custom Tabs -->
     <meta name="mobile-web-app-capable" content="yes" />
-    <!-- Prevent auto-linking phone/email numbers in WebView -->
     <meta name="format-detection" content="telephone=no, email=no, address=no" />
-    <!-- Theme colour (browser chrome on Android) -->
     <meta name="theme-color" content="#FF8C00" />
     <title>DHD Livraison</title>
     <meta name="description" content="نظام إدارة الموارد البشرية لشركة DHD للتوصيل" />
-    <!-- Wake the Render API while the static app assets are loading. This is
-         intentionally fire-and-forget so it never blocks the first paint. -->
     <script>
-      window.fetch('/api/healthz', {
-        method: 'GET',
-        credentials: 'omit',
-        cache: 'no-store',
-        keepalive: true
-      }).catch(function () {});
+      if (window.location.pathname === '/announcements') {
+        window.location.replace('/dashboard');
+      }
     </script>
-
-    <!-- ── Favicons ── -->
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <!-- PWA Web Manifest -->
     <link rel="manifest" href="/site.webmanifest" />
-
-    <!-- Fonts with swap fallback; safe to fail inside restricted WebViews -->
     <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Changa:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
     <noscript><link href="https://fonts.googleapis.com/css2?family=Changa:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" /></noscript>
     <link rel="stylesheet" href="/employee-detail-fallback.css">
     <script src="/employee-detail-fallback.js"></script>
-    <script src="/admin-fast-session.js"></script>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" crossorigin src="/assets/index-DYVlzey9.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-C5hoFxUC.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-query-BeEmy_aA.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-radix-CvRamAWb.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-charts-BpXFriVA.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-icons-DjWppej9.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-BSGrDEhh.css">
     <link rel="stylesheet" href="/assets/contrast-fix.css">
     <link rel="stylesheet" href="/admin-responsive.css">
     <link rel="stylesheet" href="/admin-account-overview.css">
-    <script defer src="/employee-notification-navigation.js"></script>
-    <script defer src="/notification-sound.js"></script>
-    <script defer src="/admin-responsive.js"></script>
-    <script defer src="/admin-drawer-touch.js"></script>
-    <script defer src="/mobile-scroll-guard.js"></script>
-    <script defer src="/admin-domain-enhancements.js"></script>
-    <script defer src="/admin-account-overview.js"></script>
-    <script defer src="/admin-login-identifiers.js"></script>
-    <script defer src="/salary-prepayment-review.js"></script>
+    <script src="/employee-notification-navigation.js"></script>
+    <script src="/notification-sound.js"></script>
+    <script src="/admin-responsive.js"></script>
+    <script src="/admin-drawer-touch.js"></script>
+    <script src="/admin-domain-enhancements.js"></script>
+    <script src="/admin-account-overview.js"></script>
+    <script src="/admin-requests-filter.js"></script>
   </head>
   <body>
     <div id="root"></div>

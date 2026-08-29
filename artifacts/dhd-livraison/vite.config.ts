@@ -51,6 +51,19 @@ function legacyPublicAssets() {
         fs.createReadStream(candidate).pipe(response);
       });
     },
+    closeBundle() {
+      const outputDir = path.resolve(import.meta.dirname, 'dist/public');
+      const legacyAssetsDir = path.join(legacyPublicDir, 'assets');
+      if (!fs.existsSync(legacyAssetsDir)) return;
+
+      fs.mkdirSync(path.join(outputDir, 'assets'), { recursive: true });
+      for (const fileName of fs.readdirSync(legacyAssetsDir)) {
+        const source = path.join(legacyAssetsDir, fileName);
+        const destination = path.join(outputDir, 'assets', fileName);
+        if (!fs.statSync(source).isFile() || fs.existsSync(destination)) continue;
+        fs.copyFileSync(source, destination);
+      }
+    },
   };
 }
 
