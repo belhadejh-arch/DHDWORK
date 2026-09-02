@@ -1129,40 +1129,35 @@ export async function createAdvance(data: any) {
   return record;
 }
 
-export async function updateAdvanceStatus(id: number, status: string) {
+export async function updateAdvanceStatus(id: number, status: string, details: { reason?: string; adminNote?: string } = {}) {
   try {
     const db = getDb();
-    if (db) {
-      const [updated] = await db
-        .update(advances)
-        .set({
-          status,
-          resolvedAt: new Date()
-        })
-        .where(eq(advances.id, Number(id)))
-        .returning();
-      if (updated) {
-        await refreshOpenSalaryCalculations(Number(updated.employeeId));
-        await createNotificationRecord({
-          type: status === "approved" ? "advance_approved" : "advance_rejected",
-          message: status === "approved" ? "تمت الموافقة على طلب السلفة" : "تم رفض طلب السلفة",
-          recipientType: "employee",
-          recipientEmployeeId: Number(updated.employeeId),
-          referenceId: Number(updated.id),
-          referenceIdType: "advance",
-        });
-        return updated;
-      }
+    if (!db) throw new Error("Database is not available");
+    const [updated] = await db
+      .update(advances)
+      .set({
+        status,
+        resolvedAt: new Date(),
+        ...(status === "rejected" && details.reason !== undefined ? { rejectionReason: details.reason } : {}),
+        ...(status === "approved" && details.adminNote !== undefined ? { adminNote: details.adminNote } : {}),
+      })
+      .where(eq(advances.id, Number(id)))
+      .returning();
+    if (updated) {
+      await refreshOpenSalaryCalculations(Number(updated.employeeId));
+      await createNotificationRecord({
+        type: status === "approved" ? "advance_approved" : "advance_rejected",
+        message: status === "approved" ? "تمت الموافقة على طلب السلفة" : "تم رفض طلب السلفة",
+        recipientType: "employee",
+        recipientEmployeeId: Number(updated.employeeId),
+        referenceId: Number(updated.id),
+        referenceIdType: "advance",
+      });
+      return updated;
     }
   } catch (err) {
-    console.warn("DB updateAdvanceStatus failed, using fallback:", err);
-  }
-
-  const adv = memoryStore.advances.find((a) => a.id === Number(id));
-  if (adv) {
-    adv.status = status;
-    saveLocalStore();
-    return adv;
+    console.error("DB updateAdvanceStatus failed:", err);
+    throw err;
   }
   return null;
 }
@@ -1240,36 +1235,34 @@ export async function createLeaveRequest(data: any) {
   return record;
 }
 
-export async function updateLeaveRequestStatus(id: number, status: string) {
+export async function updateLeaveRequestStatus(id: number, status: string, details: { reason?: string; adminNote?: string } = {}) {
   try {
     const db = getDb();
-    if (db) {
-      const [updated] = await db
-        .update(leaveRequests)
-        .set({ status, resolvedAt: new Date() })
-        .where(eq(leaveRequests.id, Number(id)))
-        .returning();
-      if (updated) {
-        await createNotificationRecord({
-          type: status === "approved" ? "leave_approved" : "leave_rejected",
-          message: status === "approved" ? "تمت الموافقة على طلب الغياب" : "تم رفض طلب الغياب",
-          recipientType: "employee",
-          recipientEmployeeId: Number(updated.employeeId),
-          referenceId: Number(updated.id),
-          referenceIdType: "leave",
-        });
-        return updated;
-      }
+    if (!db) throw new Error("Database is not available");
+    const [updated] = await db
+      .update(leaveRequests)
+      .set({
+        status,
+        resolvedAt: new Date(),
+        ...(status === "rejected" && details.reason !== undefined ? { rejectionReason: details.reason } : {}),
+        ...(status === "approved" && details.adminNote !== undefined ? { adminNote: details.adminNote } : {}),
+      })
+      .where(eq(leaveRequests.id, Number(id)))
+      .returning();
+    if (updated) {
+      await createNotificationRecord({
+        type: status === "approved" ? "leave_approved" : "leave_rejected",
+        message: status === "approved" ? "تمت الموافقة على طلب الغياب" : "تم رفض طلب الغياب",
+        recipientType: "employee",
+        recipientEmployeeId: Number(updated.employeeId),
+        referenceId: Number(updated.id),
+        referenceIdType: "leave",
+      });
+      return updated;
     }
   } catch (err) {
-    console.warn("DB updateLeaveRequestStatus failed, using fallback:", err);
-  }
-
-  const req = memoryStore.leaveRequests.find((l) => l.id === Number(id));
-  if (req) {
-    req.status = status;
-    saveLocalStore();
-    return req;
+    console.error("DB updateLeaveRequestStatus failed:", err);
+    throw err;
   }
   return null;
 }
@@ -1346,36 +1339,34 @@ export async function createVacationRequest(data: any) {
   return record;
 }
 
-export async function updateVacationRequestStatus(id: number, status: string) {
+export async function updateVacationRequestStatus(id: number, status: string, details: { reason?: string; adminNote?: string } = {}) {
   try {
     const db = getDb();
-    if (db) {
-      const [updated] = await db
-        .update(vacationRequests)
-        .set({ status, resolvedAt: new Date() })
-        .where(eq(vacationRequests.id, Number(id)))
-        .returning();
-      if (updated) {
-        await createNotificationRecord({
-          type: status === "approved" ? "vacation_approved" : "vacation_rejected",
-          message: status === "approved" ? "تمت الموافقة على طلب العطلة" : "تم رفض طلب العطلة",
-          recipientType: "employee",
-          recipientEmployeeId: Number(updated.employeeId),
-          referenceId: Number(updated.id),
-          referenceIdType: "vacation",
-        });
-        return updated;
-      }
+    if (!db) throw new Error("Database is not available");
+    const [updated] = await db
+      .update(vacationRequests)
+      .set({
+        status,
+        resolvedAt: new Date(),
+        ...(status === "rejected" && details.reason !== undefined ? { rejectionReason: details.reason } : {}),
+        ...(status === "approved" && details.adminNote !== undefined ? { adminNote: details.adminNote } : {}),
+      })
+      .where(eq(vacationRequests.id, Number(id)))
+      .returning();
+    if (updated) {
+      await createNotificationRecord({
+        type: status === "approved" ? "vacation_approved" : "vacation_rejected",
+        message: status === "approved" ? "تمت الموافقة على طلب العطلة" : "تم رفض طلب العطلة",
+        recipientType: "employee",
+        recipientEmployeeId: Number(updated.employeeId),
+        referenceId: Number(updated.id),
+        referenceIdType: "vacation",
+      });
+      return updated;
     }
   } catch (err) {
-    console.warn("DB updateVacationRequestStatus failed, using fallback:", err);
-  }
-
-  const req = memoryStore.vacationRequests.find((v) => v.id === Number(id));
-  if (req) {
-    req.status = status;
-    saveLocalStore();
-    return req;
+    console.error("DB updateVacationRequestStatus failed:", err);
+    throw err;
   }
   return null;
 }

@@ -761,19 +761,24 @@ apiRouter.post('/advances', async (req, res) => {
   res.status(201).json(record);
 });
 
-apiRouter.post('/advances/:id/approve', async (req, res) => {
+async function approveAdvance(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const updated = await updateAdvanceStatus(Number(req.params.id), 'approved');
+  const updated = await updateAdvanceStatus(Number(req.params.id), 'approved', req.body || {});
   if (!updated) return res.status(404).json({ message: 'طلب السلفة غير موجود' });
   return res.json(updated);
-});
+}
 
-apiRouter.post('/advances/:id/reject', async (req, res) => {
+async function rejectAdvance(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const updated = await updateAdvanceStatus(Number(req.params.id), 'rejected');
+  const updated = await updateAdvanceStatus(Number(req.params.id), 'rejected', req.body || {});
   if (!updated) return res.status(404).json({ message: 'طلب السلفة غير موجود' });
   return res.json(updated);
-});
+}
+
+apiRouter.post('/advances/:id/approve', approveAdvance);
+apiRouter.patch('/advances/:id/approve', approveAdvance);
+apiRouter.post('/advances/:id/reject', rejectAdvance);
+apiRouter.patch('/advances/:id/reject', rejectAdvance);
 
 // Leave Requests Endpoints
 apiRouter.get('/leave-requests', async (req, res) => {
@@ -790,19 +795,24 @@ apiRouter.post('/leave-requests', async (req, res) => {
   res.status(201).json(record);
 });
 
-apiRouter.post('/leave-requests/:id/approve', async (req, res) => {
+async function approveLeaveRequest(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const updated = await updateLeaveRequestStatus(Number(req.params.id), 'approved');
+  const updated = await updateLeaveRequestStatus(Number(req.params.id), 'approved', req.body || {});
   if (!updated) return res.status(404).json({ message: 'طلب الغياب غير موجود' });
   return res.json(updated);
-});
+}
 
-apiRouter.post('/leave-requests/:id/reject', async (req, res) => {
+async function rejectLeaveRequest(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const updated = await updateLeaveRequestStatus(Number(req.params.id), 'rejected');
+  const updated = await updateLeaveRequestStatus(Number(req.params.id), 'rejected', req.body || {});
   if (!updated) return res.status(404).json({ message: 'طلب الغياب غير موجود' });
   return res.json(updated);
-});
+}
+
+apiRouter.post('/leave-requests/:id/approve', approveLeaveRequest);
+apiRouter.patch('/leave-requests/:id/approve', approveLeaveRequest);
+apiRouter.post('/leave-requests/:id/reject', rejectLeaveRequest);
+apiRouter.patch('/leave-requests/:id/reject', rejectLeaveRequest);
 
 // Vacation Requests Endpoints
 apiRouter.get('/vacation-requests', async (req, res) => {
@@ -819,19 +829,24 @@ apiRouter.post('/vacation-requests', async (req, res) => {
   res.status(201).json(record);
 });
 
-apiRouter.post('/vacation-requests/:id/approve', async (req, res) => {
+async function approveVacationRequest(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const updated = await updateVacationRequestStatus(Number(req.params.id), 'approved');
+  const updated = await updateVacationRequestStatus(Number(req.params.id), 'approved', req.body || {});
   if (!updated) return res.status(404).json({ message: 'طلب العطلة غير موجود' });
   return res.json(updated);
-});
+}
 
-apiRouter.post('/vacation-requests/:id/reject', async (req, res) => {
+async function rejectVacationRequest(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const updated = await updateVacationRequestStatus(Number(req.params.id), 'rejected');
+  const updated = await updateVacationRequestStatus(Number(req.params.id), 'rejected', req.body || {});
   if (!updated) return res.status(404).json({ message: 'طلب العطلة غير موجود' });
   return res.json(updated);
-});
+}
+
+apiRouter.post('/vacation-requests/:id/approve', approveVacationRequest);
+apiRouter.patch('/vacation-requests/:id/approve', approveVacationRequest);
+apiRouter.post('/vacation-requests/:id/reject', rejectVacationRequest);
+apiRouter.patch('/vacation-requests/:id/reject', rejectVacationRequest);
 
 // Bonuses Endpoints
 // Bonuses — admin manages; employees may read only their own records
