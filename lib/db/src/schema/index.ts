@@ -157,6 +157,7 @@ export const salaries = pgTable("salaries", {
   finalSalary: numeric("final_salary"),
   status: text("status"),
   paidAt: timestamp("paid_at"),
+  receivedAt: timestamp("received_at"),
   postponedUntil: timestamp("postponed_until"),
   createdAt: timestamp("created_at"),
   snapshot: text("snapshot"),

@@ -635,12 +635,14 @@ type SalaryRecord = {
   baseSalary?: string | number | null;
   finalSalary?: string | number | null;
   status?: string | null;
+  receivedAt?: string | null;
 };
 
 function SalarySection() {
   const [salaries, setSalaries] = useState<SalaryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState<number | null>(null);
+  const [receiving, setReceiving] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -679,14 +681,45 @@ function SalarySection() {
     }
   };
 
+  const confirmReceived = async (salaryId: number) => {
+    if (receiving !== null) return;
+    setReceiving(salaryId);
+    try {
+      const headers = { ...employeeAuthHeaders(), 'Content-Type': 'application/json' };
+      const resp = await fetch(`/employee/salaries/${salaryId}/receive`, {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.message || 'تعذر تأكيد استلام الراتب');
+      }
+      const updated = await resp.json();
+      setSalaries(prev => prev.map(s => s.id === salaryId ? { ...s, status: updated.status || 'received', receivedAt: updated.receivedAt || new Date().toISOString() } : s));
+      alert('تم تأكيد استلام الراتب بنجاح وإشعار الإدارة');
+    } catch (e: any) {
+      alert(e.message || 'حدث خطأ أثناء تأكيد الاستلام');
+    } finally {
+      setReceiving(null);
+    }
+  };
+
   const monthLabel = (month?: string | null) => {
     const map: Record<string, string> = { '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل', '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس', '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر' };
     return map[String(month || '').padStart(2, '0')] || month || '—';
   };
 
-  const statusBadge = (status?: string | null) => {
-    if (status === 'paid') return <span className="dhd-attendance-status is-complete">مدفوع</span>;
-    if (status === 'postponed') return <span className="dhd-attendance-status">مؤجل</span>;
+  const statusBadge = (salary: SalaryRecord) => {
+    if (salary.status === 'received' || salary.receivedAt) {
+      return <span className="dhd-attendance-status is-complete">تم استلام الراتب</span>;
+    }
+    if (salary.status === 'paid' || salary.status === 'transferred') {
+      return <span className="dhd-attendance-status" style={{ background: '#fff7ed', color: '#c2410c', borderColor: '#fed7aa' }}>تم التحويل (بانتظار استلامك)</span>;
+    }
+    if (salary.status === 'postponed') {
+      return <span className="dhd-attendance-status">مؤجل</span>;
+    }
     return <span className="dhd-attendance-status is-open">معلق</span>;
   };
 
@@ -706,20 +739,33 @@ function SalarySection() {
             <article className="dhd-record-row" key={salary.id}>
               <div>
                 <strong>{monthLabel(salary.month)} {salary.year || ''}</strong>
-                <span>{statusBadge(salary.status)}</span>
+                <span>{statusBadge(salary)}</span>
               </div>
               <div className="dhd-record-meta">
                 <strong>{Number(salary.finalSalary || salary.baseSalary || 0).toLocaleString('ar-DZ')} دج</strong>
-                <button
-                  type="button"
-                  className="dhd-action-button"
-                  style={{ padding: '6px 14px', fontSize: '12px', gap: '5px' }}
-                  disabled={opening === salary.id}
-                  onClick={() => void openPdf(salary)}
-                >
-                  {opening === salary.id ? <span className="dhd-spinner" /> : <FileText size={14} />}
-                  كشف PDF
-                </button>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {(salary.status === 'paid' || salary.status === 'transferred') && !salary.receivedAt && (
+                    <button
+                      type="button"
+                      className="dhd-action-button"
+                      style={{ background: '#059669', color: '#fff', padding: '6px 10px', fontSize: '11px', fontWeight: 'bold' }}
+                      disabled={receiving === salary.id}
+                      onClick={() => void confirmReceived(salary.id)}
+                    >
+                      {receiving === salary.id ? 'جارٍ التسجيل...' : 'تم استلام المبلغ'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="dhd-action-button"
+                    style={{ padding: '6px 14px', fontSize: '12px', gap: '5px' }}
+                    disabled={opening === salary.id}
+                    onClick={() => void openPdf(salary)}
+                  >
+                    {opening === salary.id ? <span className="dhd-spinner" /> : <FileText size={14} />}
+                    كشف PDF
+                  </button>
+                </div>
               </div>
             </article>
           ))}

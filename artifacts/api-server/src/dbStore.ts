@@ -2067,6 +2067,44 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
   return updated || null;
 }
 
+export async function markSalaryReceived(salaryId: number, employeeId: number) {
+  const db = getDb();
+  const [salary] = await db.select().from(salaries).where(eq(salaries.id, Number(salaryId))).limit(1);
+  if (!salary) throw new Error("كشف الراتب غير موجود");
+  if (Number(salary.employeeId) !== Number(employeeId)) throw new Error("غير مصرح لك بتأكيد استلام هذا الراتب");
+  if (salary.status === "received") return salary;
+  if (salary.status !== "paid" && salary.status !== "transferred") {
+    throw new Error("لم يتم تحويل الراتب بعد من قبل الإدارة");
+  }
+
+  const [employee] = await db.select().from(employees).where(eq(employees.id, Number(employeeId))).limit(1);
+  const employeeName = employee ? `${employee.firstName} ${employee.lastName}` : "الموظف";
+
+  const [updated] = await db.update(salaries).set({
+    status: "received",
+    receivedAt: new Date(),
+  }).where(eq(salaries.id, Number(salaryId))).returning();
+
+  const [adminNotification] = await db.insert(notifications).values({
+    type: "salary_received",
+    message: `قام الموظف ${employeeName} بتأكيد استلام راتب شهر ${salary.month}/${salary.year}`,
+    recipientType: "admin",
+    recipientEmployeeId: null,
+    referenceId: Number(salaryId),
+    referenceIdType: "salary",
+    isRead: false,
+    createdAt: new Date(),
+  }).returning();
+
+  if (adminNotification) {
+    void sendPushNotification(adminNotification).catch((err) => {
+      console.warn("salary receipt push delivery failed:", err);
+    });
+  }
+
+  return updated;
+}
+
 export async function getEmployeeSalaryBalance(employeeId: number) {
   const db = getDb();
   const empSalaries = await db.select().from(salaries).where(eq(salaries.employeeId, Number(employeeId)));

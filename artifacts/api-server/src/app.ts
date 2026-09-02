@@ -111,6 +111,7 @@ import {
   ,getAttendanceChartData
   ,getSalaryChartData
   ,markAutoAbsences
+  ,markSalaryReceived
 } from './dbStore.js';
 
 export const app = express();
@@ -1554,6 +1555,26 @@ async function getEmployeePayslipPdf(req: express.Request, res: express.Response
 // The imported employee bundle prefixes all of its calls with /api.
 apiRouter.get('/employee/salaries/:month/payslip', getEmployeePayslip);
 apiRouter.get('/employee/salaries/:id/pdf', getEmployeePayslipPdf);
+apiRouter.post('/employee/salaries/:id/receive', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  try {
+    const updated = await markSalaryReceived(Number(req.params.id), ctx.employee.id);
+    return res.json({ ...updated, ok: true });
+  } catch (error: any) {
+    return res.status(400).json({ message: error.message || 'تعذر تأكيد استلام الراتب' });
+  }
+});
+apiRouter.patch('/employee/salaries/:id/receive', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  try {
+    const updated = await markSalaryReceived(Number(req.params.id), ctx.employee.id);
+    return res.json({ ...updated, ok: true });
+  } catch (error: any) {
+    return res.status(400).json({ message: error.message || 'تعذر تأكيد استلام الراتب' });
+  }
+});
 
 apiRouter.get('/employee/requests', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -1744,6 +1765,17 @@ app.get('/employee/salaries/:id/pdf', async (req, res) => {
     return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
   }
   return sendPayslipPdf(res, data, req.query.download === '1');
+});
+
+app.post('/employee/salaries/:id/receive', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  try {
+    const updated = await markSalaryReceived(Number(req.params.id), ctx.employee.id);
+    return res.json({ ...updated, ok: true });
+  } catch (error: any) {
+    return res.status(400).json({ message: error.message || 'تعذر تأكيد استلام الراتب' });
+  }
 });
 
 app.get('/employee/salary-balance', async (req, res) => {
