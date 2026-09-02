@@ -263,12 +263,22 @@ function NotificationPanel() {
 
   useEffect(() => {
     void loadNotifications();
-    const interval = window.setInterval(() => void loadNotifications(), 2_000);
+    const interval = window.setInterval(() => void loadNotifications(), 15_000);
+    const stream = typeof EventSource === 'undefined'
+      ? null
+      : new EventSource('/api/notifications/stream');
+    if (stream) {
+      stream.onmessage = () => void loadNotifications();
+      stream.onerror = () => {
+        // EventSource reconnects automatically; polling remains the fallback.
+      };
+    }
     const refreshOnFocus = () => void loadNotifications();
     window.addEventListener('focus', refreshOnFocus);
     document.addEventListener('visibilitychange', refreshOnFocus);
     return () => {
       window.clearInterval(interval);
+      stream?.close();
       window.removeEventListener('focus', refreshOnFocus);
       document.removeEventListener('visibilitychange', refreshOnFocus);
     };
@@ -645,16 +655,43 @@ function SalarySection() {
   const [opening, setOpening] = useState<number | null>(null);
   const [receiving, setReceiving] = useState<number | null>(null);
 
+  const loadSalaries = useCallback(async () => {
+    const response = await fetch('/api/employee/salaries', {
+      credentials: 'include',
+      headers: employeeAuthHeaders(),
+    });
+    if (!response.ok) throw new Error('تعذر تحميل الرواتب');
+    const data = await response.json();
+    setSalaries(Array.isArray(data) ? data : []);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    const headers = employeeAuthHeaders();
-    fetch('/api/employee/salaries', { credentials: 'include', headers })
-      .then((r) => r.ok ? r.json() : [])
-      .then((data) => { if (!cancelled) setSalaries(Array.isArray(data) ? data : []); })
+    void loadSalaries()
       .catch(() => { if (!cancelled) setSalaries([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+    const stream = typeof EventSource === 'undefined'
+      ? null
+      : new EventSource('/api/notifications/stream');
+    if (stream) {
+      stream.onmessage = (event) => {
+        try {
+          const notification = JSON.parse(event.data) as NotificationRecord;
+          if (String(notification.type || '').startsWith('salary_')) {
+            void loadSalaries().catch(() => undefined);
+          }
+        } catch {
+          // Ignore a malformed event and keep the saved salary list visible.
+        }
+      };
+    }
+    const interval = window.setInterval(() => void loadSalaries().catch(() => undefined), 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      stream?.close();
+    };
+  }, [loadSalaries]);
 
   const openPdf = async (salary: SalaryRecord) => {
     if (opening !== null) return;

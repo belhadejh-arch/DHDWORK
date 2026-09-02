@@ -115,6 +115,26 @@
     notificationBaselineReady = true;
   }
 
+  function connectNotificationStream() {
+    if (typeof EventSource === 'undefined') return;
+    var stream = new EventSource('/api/notifications/stream');
+    stream.onmessage = function (event) {
+      var employeeToken = localStorage.getItem('dhd_employee_token') || localStorage.getItem('employee_token');
+      var adminToken = localStorage.getItem('dhd_admin_token');
+      if (!employeeToken && !adminToken) {
+        stream.close();
+        return;
+      }
+      var endpoint = employeeToken ? '/api/employee/notifications' : '/api/notifications';
+      fetchNotifications(endpoint);
+      window.dispatchEvent(new CustomEvent('dhd:notifications-updated', {
+        detail: { notification: event.data }
+      }));
+    };
+    // EventSource reconnects by itself. Polling remains active as a fallback
+    // for older WebViews that do not keep streaming connections reliably.
+  }
+
   function pushAuthHeaders() {
     const token = localStorage.getItem('dhd_employee_token') || localStorage.getItem('dhd_admin_token');
     return token ? { Authorization: 'Bearer ' + token } : {};
@@ -254,6 +274,7 @@
 
   pollNotifications();
   window.setInterval(pollNotifications, POLL_MS);
+  connectNotificationStream();
   const observer = new MutationObserver(function () {
     addSoundSetting();
     addPushSetting();

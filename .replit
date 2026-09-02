@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -26,3 +26,41 @@ VAPID_PUBLIC_KEY = "BE1FW7wyTolAHwwGujP1g9YUw0CkZcqUDm7xLRaqiZaIR9Vz6mC_BXuY760s
 VAPID_SUBJECT = "mailto:admin@dhd-livraison.dz"
 
 [workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "DHD API"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "DHD Web"
+
+[[workflows.workflow]]
+name = "DHD API"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=8080 pnpm --filter @workspace/api-server run dev"
+waitForPort = 8080
+
+[[workflows.workflow]]
+name = "DHD Web"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=22444 pnpm --filter @workspace/dhd-livraison run dev"
+waitForPort = 22444

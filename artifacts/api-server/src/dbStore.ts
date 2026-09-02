@@ -17,6 +17,25 @@ function configurePush() {
   return true;
 }
 
+type NotificationListener = (notification: any) => void;
+const notificationListeners = new Set<NotificationListener>();
+
+export function subscribeToNotifications(listener: NotificationListener) {
+  notificationListeners.add(listener);
+  return () => notificationListeners.delete(listener);
+}
+
+function publishNotification(notification: any) {
+  if (!notification) return;
+  for (const listener of notificationListeners) {
+    try {
+      listener(notification);
+    } catch (error) {
+      console.warn("notification stream listener failed:", error);
+    }
+  }
+}
+
 // Local file backup path for resilient storage if PG is offline
 const BACKUP_FILE = path.resolve(process.cwd(), "data-store.json");
 
@@ -763,7 +782,7 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
-  const isPaidSnapshot = salary.status === "paid";
+  const isPaidSnapshot = salary.status === "paid" || salary.status === "received";
   const baseSalary = isPaidSnapshot
     ? numberOr(salary.baseSalary, numberOr(emp.baseSalary, 0))
     : numberOr(emp.baseSalary, numberOr(salary.baseSalary, 0));
@@ -839,7 +858,7 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
 export async function getSalaryPdfData(salaryId: number) {
   const salary = await getSalaryById(salaryId);
   if (!salary) return null;
-  if (salary.status === "paid" && salary.snapshot) {
+  if ((salary.status === "paid" || salary.status === "received") && salary.snapshot) {
     try {
       return JSON.parse(String(salary.snapshot));
     } catch {
@@ -863,7 +882,9 @@ export async function getSalaryPreviewData(employeeId: number, month: string, ye
   const existing = rows
     .filter((record: any) => String(record.month).padStart(2, "0") === normalizedMonth)
     .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
-  if (existing?.status === "paid") return getSalaryPdfData(Number(existing.id));
+  if (existing?.status === "paid" || existing?.status === "received") {
+    return getSalaryPdfData(Number(existing.id));
+  }
   const salary = existing || {
     id: null,
     employeeId,
@@ -881,7 +902,7 @@ async function refreshOpenSalaryCalculations(employeeId: number) {
   const db = getDb();
   const records = await db.select().from(salaries).where(eq(salaries.employeeId, Number(employeeId)));
   for (const record of records) {
-    if (record.status === "paid") continue;
+    if (record.status === "paid" || record.status === "received") continue;
     await db.update(salaries).set({
       finalSalary: null,
       violationDeductions: null,
@@ -1548,7 +1569,7 @@ export async function createViolation(data: any) {
       }
     }
 
-    await tx.insert(notifications).values({
+        const [adminNotification] = await tx.insert(notifications).values({
       type: "violation_deduction",
       message: amount > 0
         ? `تم تسجيل مخالفة وخصم ${amount.toLocaleString("en-US")} DZD من رصيد الموظف #${employeeId}`
@@ -1559,9 +1580,13 @@ export async function createViolation(data: any) {
       referenceIdType: "violation",
       isRead: false,
       createdAt: new Date(),
-    });
+        }).returning();
 
-    return { record: { ...record, salaryId, status: amount > 0 ? "deducted" : "applied" }, deductionApplied };
+    return {
+      record: { ...record, salaryId, status: amount > 0 ? "deducted" : "applied" },
+      deductionApplied,
+      notification: adminNotification || null,
+    };
   });
 
   const employee = await getEmployeeById(employeeId);
@@ -1576,6 +1601,7 @@ export async function createViolation(data: any) {
     success: true,
     message: amount > 0 ? "تم تسجيل المخالفة وتطبيق الخصم مباشرة" : "تم تسجيل المخالفة",
   };
+  publishNotification(result.notification);
   await refreshOpenSalaryCalculations(employeeId);
   await createNotificationRecord({
     type: "violation_deduction",
@@ -1830,7 +1856,9 @@ export async function updateViolation(id: number, data: any) {
   if (!current[0]) return null;
   if (current[0].salaryId) {
     const [linkedSalary] = await db.select().from(salaries).where(eq(salaries.id, Number(current[0].salaryId))).limit(1);
-    if (linkedSalary?.status === "paid") throw new Error("لا يمكن تعديل مخالفة مرتبطة براتب مدفوع");
+    if (linkedSalary?.status === "paid" || linkedSalary?.status === "received") {
+      throw new Error("لا يمكن تعديل مخالفة مرتبطة براتب مدفوع");
+    }
   }
   const oldAmount = Number(current[0].amount || 0);
   const nextAmount = data.amount !== undefined || data.deductionAmount !== undefined
@@ -1873,7 +1901,9 @@ export async function deleteViolation(id: number) {
   const current = await getViolationById(id);
   if (current?.salaryId) {
     const [linkedSalary] = await db.select().from(salaries).where(eq(salaries.id, Number(current.salaryId))).limit(1);
-    if (linkedSalary?.status === "paid") throw new Error("لا يمكن حذف مخالفة مرتبطة براتب مدفوع");
+    if (linkedSalary?.status === "paid" || linkedSalary?.status === "received") {
+      throw new Error("لا يمكن حذف مخالفة مرتبطة براتب مدفوع");
+    }
   }
   const deleted = await db.delete(violations).where(eq(violations.id, Number(id))).returning({ id: violations.id });
   if (deleted.length && current) await refreshOpenSalaryCalculations(Number(current.employeeId));
@@ -1925,13 +1955,15 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
   const db = getDb();
   let [before] = await db.select().from(salaries).where(eq(salaries.id, Number(id)));
   if (!before) return null;
-  if (before.status === "paid") return before;
+  if (before.status === "paid" || before.status === "received") return before;
   if (status === "paid") {
     const finalizePayment = () => db.transaction(async (tx: any) => {
       const [locked] = await tx.select().from(salaries)
         .where(eq(salaries.id, Number(id))).for("update").limit(1);
       if (!locked) return { paid: null, transitioned: false, notification: null };
-      if (locked.status === "paid") return { paid: locked, transitioned: false, notification: null };
+      if (locked.status === "paid" || locked.status === "received") {
+        return { paid: locked, transitioned: false, notification: null };
+      }
       const [employee] = await tx.select().from(employees)
         .where(eq(employees.id, Number(locked.employeeId))).limit(1);
       const frozen = await calculateSalaryPeriodData(locked, employee, tx);
@@ -1992,6 +2024,7 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
     if (!paid) return null;
     if (!result.transitioned) return paid;
     if (result.notification) {
+      publishNotification(result.notification);
       void sendPushNotification(result.notification).catch((error) => {
         console.warn("salary payment push delivery failed:", error);
       });
@@ -2018,46 +2051,60 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
 
 export async function markSalaryReceived(salaryId: number, employeeId: number) {
   const db = getDb();
-  const [salary] = await db.select().from(salaries).where(eq(salaries.id, Number(salaryId))).limit(1);
-  if (!salary) throw new Error("كشف الراتب غير موجود");
-  if (Number(salary.employeeId) !== Number(employeeId)) throw new Error("غير مصرح لك بتأكيد استلام هذا الراتب");
-  if (salary.status === "received") return salary;
-  if (salary.status !== "paid" && salary.status !== "transferred") {
-    throw new Error("لم يتم تحويل الراتب بعد من قبل الإدارة");
-  }
+  const result = await db.transaction(async (tx: any) => {
+    const [salary] = await tx.select().from(salaries)
+      .where(eq(salaries.id, Number(salaryId))).for("update").limit(1);
+    if (!salary) throw new Error("كشف الراتب غير موجود");
+    if (Number(salary.employeeId) !== Number(employeeId)) {
+      throw new Error("غير مصرح لك بتأكيد استلام هذا الراتب");
+    }
+    if (salary.status === "received") {
+      return { updated: salary, transitioned: false, notification: null };
+    }
+    if (salary.status !== "paid" && salary.status !== "transferred") {
+      throw new Error("لم يتم تحويل الراتب بعد من قبل الإدارة");
+    }
 
-  const [employee] = await db.select().from(employees).where(eq(employees.id, Number(employeeId))).limit(1);
-  const employeeName = employee ? `${employee.firstName} ${employee.lastName}` : "الموظف";
+    const [employee] = await tx.select().from(employees)
+      .where(eq(employees.id, Number(employeeId))).limit(1);
+    const employeeName = employee ? `${employee.firstName} ${employee.lastName}` : "الموظف";
+    const [updated] = await tx.update(salaries).set({
+      status: "received",
+      receivedAt: new Date(),
+    }).where(and(eq(salaries.id, Number(salaryId)), ne(salaries.status, "received"))).returning();
+    if (!updated) {
+      return { updated: salary, transitioned: false, notification: null };
+    }
 
-  const [updated] = await db.update(salaries).set({
-    status: "received",
-    receivedAt: new Date(),
-  }).where(eq(salaries.id, Number(salaryId))).returning();
+    const [adminNotification] = await tx.insert(notifications).values({
+      type: "salary_received",
+      message: `قام الموظف ${employeeName} بتأكيد استلام راتب شهر ${salary.month}/${salary.year}`,
+      recipientType: "admin",
+      recipientEmployeeId: null,
+      referenceId: Number(salaryId),
+      referenceIdType: "salary",
+      isRead: false,
+      createdAt: new Date(),
+    }).returning();
 
-  const [adminNotification] = await db.insert(notifications).values({
-    type: "salary_received",
-    message: `قام الموظف ${employeeName} بتأكيد استلام راتب شهر ${salary.month}/${salary.year}`,
-    recipientType: "admin",
-    recipientEmployeeId: null,
-    referenceId: Number(salaryId),
-    referenceIdType: "salary",
-    isRead: false,
-    createdAt: new Date(),
-  }).returning();
+    return { updated, transitioned: true, notification: adminNotification || null };
+  });
 
-  if (adminNotification) {
-    void sendPushNotification(adminNotification).catch((err) => {
+  if (result.transitioned && result.notification) {
+    publishNotification(result.notification);
+    void sendPushNotification(result.notification).catch((err) => {
       console.warn("salary receipt push delivery failed:", err);
     });
   }
-
-  return updated;
+  return result.updated;
 }
 
 export async function getEmployeeSalaryBalance(employeeId: number) {
   const db = getDb();
   const empSalaries = await db.select().from(salaries).where(eq(salaries.employeeId, Number(employeeId)));
-  const totalPaid = empSalaries.filter((s: any) => s.status === 'paid').reduce((sum: number, s: any) => sum + Number(s.finalSalary || 0), 0);
+  const totalPaid = empSalaries
+    .filter((s: any) => s.status === 'paid' || s.status === 'received')
+    .reduce((sum: number, s: any) => sum + Number(s.finalSalary || 0), 0);
   const totalPending = empSalaries.filter((s: any) => s.status === 'pending').reduce((sum: number, s: any) => sum + Number(s.finalSalary || 0), 0);
   const employeeViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(employeeId)));
   const unlinkedDeductions = employeeViolations
@@ -2095,7 +2142,10 @@ export async function createNotificationRecord(data: {
       isRead: false,
       createdAt: new Date(),
     }).returning();
-    if (record) await sendPushNotification(record);
+    if (record) {
+      publishNotification(record);
+      await sendPushNotification(record);
+    }
     return record || null;
   } catch (err) {
     console.warn("createNotificationRecord failed:", err);

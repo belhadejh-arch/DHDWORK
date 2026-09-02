@@ -112,6 +112,7 @@ import {
   ,getSalaryChartData
   ,markAutoAbsences
   ,markSalaryReceived
+  ,subscribeToNotifications
 } from './dbStore.js';
 
 export const app = express();
@@ -929,7 +930,9 @@ apiRouter.patch('/violations/:id', async (req, res) => {
   if (!existing) return res.status(404).json({ message: 'المخالفة غير موجودة' });
   if (existing.salaryId) {
     const salary = await getSalaryById(Number(existing.salaryId));
-    if (salary?.status === 'paid') return res.status(409).json({ message: 'لا يمكن تعديل مخالفة مرتبطة براتب مدفوع' });
+    if (salary?.status === 'paid' || salary?.status === 'received') {
+      return res.status(409).json({ message: 'لا يمكن تعديل مخالفة مرتبطة براتب مدفوع' });
+    }
   }
   const v = await updateViolation(Number(req.params.id), req.body);
   if (!v) return res.status(404).json({ message: 'المخالفة غير موجودة' });
@@ -942,7 +945,9 @@ apiRouter.delete('/violations/:id', async (req, res) => {
   if (!existing) return res.status(404).json({ message: 'المخالفة غير موجودة' });
   if (existing.salaryId) {
     const salary = await getSalaryById(Number(existing.salaryId));
-    if (salary?.status === 'paid') return res.status(409).json({ message: 'لا يمكن حذف مخالفة مرتبطة براتب مدفوع' });
+    if (salary?.status === 'paid' || salary?.status === 'received') {
+      return res.status(409).json({ message: 'لا يمكن حذف مخالفة مرتبطة براتب مدفوع' });
+    }
   }
   const deleted = await deleteViolation(Number(req.params.id));
   if (!deleted) return res.status(404).json({ message: 'المخالفة غير موجودة' });
@@ -1022,7 +1027,9 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
     violationDeductions: Number(summary.violationTotal || 0),
     totalDeductions: Number(summary.totalDeductions || 0),
     finalSalary: Number(summary.finalSalary || 0),
-    previewState: complete.salary.status === 'paid' ? 'paid' : 'review_before_payment',
+    previewState: complete.salary.status === 'paid' || complete.salary.status === 'received'
+      ? 'paid'
+      : 'review_before_payment',
     previewPdfUrl: `/api/salaries/preview/pdf?employeeId=${employeeId}&month=${encodeURIComponent(normalizedMonth)}&year=${numericYear}`,
   };
 }
@@ -1161,7 +1168,9 @@ async function postponeSalary(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
   const current = await getSalaryById(Number(req.params.id));
   if (!current) return res.status(404).json({ message: 'الراتب غير موجود' });
-  if (current.status === 'paid') return res.status(409).json({ message: 'لا يمكن تعديل راتب تم دفعه' });
+  if (current.status === 'paid' || current.status === 'received') {
+    return res.status(409).json({ message: 'لا يمكن تعديل راتب تم دفعه' });
+  }
   const s = await updateSalaryStatus(Number(req.params.id), 'postponed', { postponedUntil: req.body?.postponedUntil });
   if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
   return res.json({ ...s, ok: true });
@@ -1268,6 +1277,39 @@ function withNotificationTarget(notification: any) {
     targetPath: notificationTargetPath(notification),
   };
 }
+
+apiRouter.get('/notifications/stream', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (!ctx) return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+
+  const recipientType = ctx.userType === 'employee' ? 'employee' : 'admin';
+  const recipientEmployeeId = ctx.userType === 'employee' ? Number(ctx.employee.id) : null;
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+  res.write(`retry: 3000\n\n`);
+
+  const isForThisUser = (notification: any) =>
+    notification.recipientType === recipientType &&
+    (recipientType !== 'employee' ||
+      Number(notification.recipientEmployeeId) === recipientEmployeeId);
+  const send = (notification: any) => {
+    if (!isForThisUser(notification) || res.writableEnded) return;
+    res.write(`data: ${JSON.stringify(withNotificationTarget(notification))}\n\n`);
+  };
+  const unsubscribe = subscribeToNotifications(send);
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded) return;
+    res.write(`: heartbeat ${Date.now()}\n\n`);
+  }, 25_000);
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+  return res;
+});
 
 apiRouter.get('/notifications', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -1981,7 +2023,7 @@ function pdfFontPath(bold = false) {
 
 function sendPayslipPdf(res: express.Response, data: any, download = false) {
   const { salary, employee, summary } = data;
-  const isPaid = salary.status === 'paid';
+  const isPaid = salary.status === 'paid' || salary.status === 'received';
   const employeeName = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
   const period = pdfMonth(salary.month, salary.year);
   const fileName = `كشف-راتب-${employee?.serialNumber || employee?.id || salary.id}-${salary.month}-${salary.year}.pdf`;
