@@ -16,6 +16,21 @@
   border-inline-start: 3px solid #43a66f;
 }
 
+.dhd-employee-notification-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-inline-start: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: #fff;
+  background: #dc4c45;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .dhd-legacy-notification-delete,
 .dhd-legacy-mark-all {
   border: 0;

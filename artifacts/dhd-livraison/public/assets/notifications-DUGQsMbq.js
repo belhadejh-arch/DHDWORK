@@ -33,9 +33,10 @@ function Notifications(){
       const response=await fetch(`/api/notifications/${id}${action==="read"?"/read":""}`,{
         method:action==="read"?"POST":"DELETE",credentials:"include",headers:apiHeaders()
       });
-      if(!response.ok)return;
+      if(!response.ok)return false;
       if(action==="delete")setList(items=>items.filter(item=>item.id!==id));
       else setList(items=>items.map(item=>item.id===id?{...item,isRead:true}:item));
+      return true;
     }finally{setBusy(null)}
   };
   const markAll=async()=>{
@@ -55,8 +56,8 @@ function Notifications(){
     }finally{setBusy(null)}
   };
   const open=async(item)=>{
-    if(!item.isRead)await update(item.id,"read");
-    if(item.targetPath)window.location.assign(item.targetPath);
+    const marked=item.isRead||await update(item.id,"read");
+    if(marked)window.location.assign(item.targetPath||"/dashboard");
   };
   const visible=unreadOnly?list.filter(item=>!item.isRead):list;
   const unread=list.filter(item=>!item.isRead).length;

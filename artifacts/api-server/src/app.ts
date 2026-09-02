@@ -1206,15 +1206,31 @@ apiRouter.post('/notifications', async (req, res) => {
 });
 
 // Notifications
-function notificationTargetPath(notification: { type?: string | null; referenceId?: number | null; recipientType?: string | null }) {
-  const reference = notification.referenceId ? `?notificationId=${notification.referenceId}` : '';
-
+function notificationTargetPath(notification: { type?: string | null; recipientType?: string | null }) {
   if (notification.recipientType === 'employee') {
     switch (notification.type) {
+      case 'advance_request':
+      case 'advance_approved':
+      case 'advance_rejected':
+      case 'leave_request':
+      case 'leave_approved':
+      case 'leave_rejected':
+      case 'vacation_request':
+      case 'vacation_approved':
+      case 'vacation_rejected':
+        return '/portal/requests';
       case 'violation_added':
       case 'violation_updated':
       case 'violation_deduction':
-        return notification.referenceId ? `/portal#violation-${notification.referenceId}` : '/portal';
+        return '/portal/violations';
+      case 'salary_due':
+      case 'salary_paid':
+      case 'salary_postponed':
+      case 'salary_received':
+        return '/portal/account';
+      case 'attendance_alert':
+      case 'late_alert':
+        return '/portal';
       default:
         return '/portal';
     }
@@ -1230,19 +1246,19 @@ function notificationTargetPath(notification: { type?: string | null; referenceI
     case 'vacation_request':
     case 'vacation_approved':
     case 'vacation_rejected':
-      return `/requests${reference}`;
+      return '/requests';
     case 'violation_added':
     case 'violation_updated':
-      return `/violations${reference}`;
+      return '/violations';
     case 'salary_due':
     case 'salary_paid':
     case 'salary_postponed':
-      return `/salaries${reference}`;
+      return '/salaries';
     case 'attendance_alert':
     case 'late_alert':
-      return `/attendance${reference}`;
+      return '/attendance';
     default:
-      return '/portal';
+      return '/dashboard';
   }
 }
 

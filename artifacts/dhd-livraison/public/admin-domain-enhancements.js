@@ -110,6 +110,32 @@
     return token ? { Authorization: 'Bearer ' + token } : {};
   }
 
+  function openAdminNotification(notification, row) {
+    if (!notification || !row || row.dataset.dhdNotificationOpening === 'true') return;
+    row.dataset.dhdNotificationOpening = 'true';
+    var complete = function () {
+      row.classList.remove('dhd-admin-notification-unread');
+      row.classList.add('dhd-admin-notification-read');
+      refreshAdminBell();
+      window.location.assign(notification.targetPath || '/dashboard');
+    };
+    if (notification.isRead) {
+      complete();
+      return;
+    }
+    fetch('/api/notifications/' + notification.id + '/read', {
+      method: 'POST',
+      credentials: 'include',
+      headers: adminHeaders(),
+    }).then(function (response) {
+      if (!response.ok) throw new Error('notification-read-failed');
+      notification.isRead = true;
+      complete();
+    }).catch(function () {
+      delete row.dataset.dhdNotificationOpening;
+    });
+  }
+
   function decorateAdminNotificationPopover() {
     var popovers = document.querySelectorAll('[data-radix-popper-content-wrapper]');
     popovers.forEach(function (popover) {
@@ -148,6 +174,13 @@
             row.classList.toggle('dhd-admin-notification-read', Boolean(notification.isRead));
             if (notificationControls.has(row)) return;
             notificationControls.add(row);
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', function (event) {
+              if (event.target.closest('button, a')) return;
+              event.preventDefault();
+              event.stopPropagation();
+              openAdminNotification(notification, row);
+            });
             var actions = document.createElement('span');
             actions.className = 'dhd-admin-notification-actions';
             var readButton = document.createElement('button');

@@ -1626,61 +1626,30 @@ export async function listSalaries(employeeId?: number) {
 
 // Notifications
 export async function listNotifications(recipientType = "admin", recipientId?: number) {
-  try {
-    const db = getDb();
-    if (db) {
-      const all = await db.select().from(notifications).where(eq(notifications.recipientType, recipientType));
-      let list = all;
-      if (recipientId) {
-        list = list.filter((n: any) => Number(n.recipientEmployeeId) === Number(recipientId));
-      }
-      return list.map((notification: any) => ({ ...notification, isRead: Boolean(notification.isRead) })).sort((a: any, b: any) => {
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime || Number(b.id) - Number(a.id);
-      });
-    }
-  } catch (err) {
-    console.warn("DB listNotifications failed, using fallback:", err);
-  }
-
-  let list = memoryStore.notifications.filter((n) => n.recipientType === recipientType);
+  const db = getDb();
+  if (!db) throw new Error("Database is not available");
+  const all = await db.select().from(notifications).where(eq(notifications.recipientType, recipientType));
+  let list = all;
   if (recipientId) {
-    list = list.filter((n) => Number(n.recipientId) === Number(recipientId) || n.recipientId === null);
+    list = list.filter((n: any) => Number(n.recipientEmployeeId) === Number(recipientId));
   }
-  return list
-    .map((n) => ({ ...n, isRead: Boolean(n.isRead ?? n.read) }))
-    .sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bTime - aTime || Number(b.id) - Number(a.id);
-    });
+  return list.map((notification: any) => ({ ...notification, isRead: Boolean(notification.isRead) })).sort((a: any, b: any) => {
+    const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return bTime - aTime || Number(b.id) - Number(a.id);
+  });
 }
 
 export async function markNotificationsRead(recipientType = "admin", recipientId?: number) {
-  try {
-    const db = getDb();
-    if (db) {
-      const scope = recipientId
-        ? and(
-        eq(notifications.recipientType, recipientType),
-        eq(notifications.recipientEmployeeId, Number(recipientId)),
-          )
-        : eq(notifications.recipientType, recipientType);
-      await db.update(notifications).set({ isRead: true }).where(scope);
-    }
-  } catch (err) {
-    console.warn("DB markNotificationsRead failed:", err);
-  }
-  memoryStore.notifications.forEach((n) => {
-    const matchesRecipient = n.recipientType === recipientType;
-    const matchesEmployee = !recipientId || Number(n.recipientEmployeeId ?? n.recipientId) === Number(recipientId);
-    if (matchesRecipient && matchesEmployee) {
-      n.isRead = true;
-      n.read = true;
-    }
-  });
-  saveLocalStore();
+  const db = getDb();
+  if (!db) throw new Error("Database is not available");
+  const scope = recipientId
+    ? and(
+      eq(notifications.recipientType, recipientType),
+      eq(notifications.recipientEmployeeId, Number(recipientId)),
+    )
+    : eq(notifications.recipientType, recipientType);
+  await db.update(notifications).set({ isRead: true }).where(scope);
   return true;
 }
 
@@ -2179,7 +2148,11 @@ export async function deletePushSubscription(endpoint: string, userType?: "admin
 
 function pushTargetPath(notification: any) {
   if (notification.recipientType === "employee") {
-    return notification.type === "violation_deduction" ? "/portal/violations" : "/portal";
+    const type = String(notification.type || "");
+    if (type.includes("violation")) return "/portal/violations";
+    if (type.includes("advance") || type.includes("leave") || type.includes("vacation")) return "/portal/requests";
+    if (type.includes("salary")) return "/portal/account";
+    return "/portal";
   }
   if (String(notification.type || "").includes("salary")) return "/salaries";
   if (String(notification.type || "").includes("request") || String(notification.type || "").includes("advance")) return "/requests";
@@ -2221,21 +2194,17 @@ export async function sendPushNotification(notification: any) {
 }
 
 export async function markSingleNotificationRead(id: number, recipientType = "admin", recipientId?: number) {
-  try {
-    const db = getDb();
-    const scope = recipientId
-      ? and(
-          eq(notifications.id, Number(id)),
-          eq(notifications.recipientType, recipientType),
-          eq(notifications.recipientEmployeeId, Number(recipientId)),
-        )
-      : and(eq(notifications.id, Number(id)), eq(notifications.recipientType, recipientType));
-    const [updated] = await db.update(notifications).set({ isRead: true }).where(scope).returning();
-    return updated || null;
-  } catch (err) {
-    console.warn("markSingleNotificationRead failed:", err);
-    return null;
-  }
+  const db = getDb();
+  if (!db) throw new Error("Database is not available");
+  const scope = recipientId
+    ? and(
+      eq(notifications.id, Number(id)),
+      eq(notifications.recipientType, recipientType),
+      eq(notifications.recipientEmployeeId, Number(recipientId)),
+    )
+    : and(eq(notifications.id, Number(id)), eq(notifications.recipientType, recipientType));
+  const [updated] = await db.update(notifications).set({ isRead: true }).where(scope).returning();
+  return updated || null;
 }
 
 export async function deleteNotification(id: number, recipientType = "admin", recipientId?: number) {
