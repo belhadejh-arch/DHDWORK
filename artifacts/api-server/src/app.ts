@@ -1877,8 +1877,8 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
 
 app.post('/employee/attendance/:action', employeeAttendanceAction);
 
-const PDF_FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
-const PDF_FONT_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+const PDF_FONT_REGULAR = '/usr/share/fonts/truetype/freefont/FreeSans.ttf';
+const PDF_FONT_BOLD = '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf';
 const PDF_LOGO_CANDIDATES = [
   path.resolve(process.cwd(), 'artifacts/dhd-livraison/public/assets/1000034141-removebg-preview_1785699198526-C-34cSbP.png'),
   path.resolve(process.cwd(), 'attached_assets/1000034141-removebg-preview_1786535542080.png'),
@@ -2288,30 +2288,12 @@ function buildPayslipHtml(data: any): string {
 // Static frontend serving if available
 const publicDir = path.resolve(process.cwd(), 'public');
 const importedFrontendDir = path.resolve(process.cwd(), 'artifacts/dhd-livraison/public');
-const legacyFrontendDir = path.resolve(process.cwd(), '.migration-backup/public');
 const artifactsDir = path.resolve(process.cwd(), 'artifacts/dhd-livraison/dist/public');
-const frontendDist = [artifactsDir, publicDir, importedFrontendDir, legacyFrontendDir]
+const frontendDist = [publicDir, importedFrontendDir, artifactsDir]
   .find((candidate) => fs.existsSync(path.join(candidate, 'index.html'))) || artifactsDir;
 
-function staticHeaders(res: express.Response, filePath: string) {
-  if (filePath.endsWith('.html')) {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  } else {
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-  }
-}
-
 if (fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist, { setHeaders: staticHeaders }));
-  // Keep the imported build's split chunks available when Vite leaves
-  // absolute legacy asset references unchanged in index.html.
-  for (const fallbackDir of [importedFrontendDir, legacyFrontendDir]) {
-    if (fallbackDir !== frontendDist && fs.existsSync(fallbackDir)) {
-      app.use(express.static(fallbackDir, { setHeaders: staticHeaders }));
-    }
-  }
+  app.use(express.static(frontendDist));
   app.use((req, res) => {
     if (req.path.startsWith('/api')) {
       return res.status(404).json({ error: 'Not Found', path: req.path });

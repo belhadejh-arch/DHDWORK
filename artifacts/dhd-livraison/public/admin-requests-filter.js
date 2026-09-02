@@ -229,6 +229,13 @@
     loadRequests();
   }
 
+  // Auto-poll requests every 5 seconds for real-time updates without manual refresh
+  setInterval(function () {
+    if (isRequestsPage()) {
+      loadRequests();
+    }
+  }, 5000);
+
   // Style injection
   var style = document.createElement('style');
   style.textContent = [
