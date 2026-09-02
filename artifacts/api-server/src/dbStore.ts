@@ -2600,27 +2600,21 @@ export async function listAllRequests(opts?: { status?: string; employeeId?: num
 // Stats
 export async function getDashboardStats() {
   const db = getDb();
-  const [employeesList, officesList, advancesList] = await Promise.all([
-    listEmployees(), // active only
+  const today = new Date().toISOString().split("T")[0];
+
+  const [employeesList, officesList, advancesList, todayAttendance, leaveRows, vacRows] = await Promise.all([
+    listEmployees(),
     listOffices(),
     listAdvances(),
+    db.select().from(attendance).where(and(eq(attendance.date, today), eq(attendance.isAbsent, false))),
+    db.select().from(leaveRequests).where(eq(leaveRequests.status, "pending")),
+    db.select().from(vacationRequests).where(eq(vacationRequests.status, "pending")),
   ]);
 
   const totalEmployees = employeesList.length;
   const activeOffices = officesList.filter((o: any) => o.active).length;
-  const today = new Date().toISOString().split("T")[0];
-
-  // Count today's present employees directly from DB
-  const todayAttendance = await db.select().from(attendance)
-    .where(and(eq(attendance.date, today), eq(attendance.isAbsent, false)));
   const presentToday = todayAttendance.filter((a: any) => a.checkInTime != null).length;
   const pendingAdvances = advancesList.filter((a: any) => a.status === "pending").length;
-
-  // Count pending leave/vacation requests too
-  const [leaveRows, vacRows] = await Promise.all([
-    db.select().from(leaveRequests).where(eq(leaveRequests.status, "pending")),
-    db.select().from(vacationRequests).where(eq(vacationRequests.status, "pending")),
-  ]);
   const pendingRequests = pendingAdvances + leaveRows.length + vacRows.length;
 
   return {
