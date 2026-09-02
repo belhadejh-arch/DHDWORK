@@ -23,27 +23,83 @@ const importedStylesheetPath = path.resolve(
   'public',
   importedStylesheetName,
 );
+const importedAssetsPath = path.resolve(
+  import.meta.dirname,
+  '..',
+  '..',
+  '.migration-backup',
+  'public',
+  'assets',
+);
 
 function importedStylesheetPlugin() {
   return {
     name: 'serve-imported-stylesheet',
-    configureServer(server: { middlewares: { use: (path: string, handler: (req: unknown, res: { statusCode: number; setHeader: (name: string, value: string) => void; end: (content: Buffer) => void }, next: () => void) => void) => void } }) {
-      server.middlewares.use(`/${importedStylesheetName}`, (_request, response, next) => {
-        if (!fs.existsSync(importedStylesheetPath)) {
+    configureServer(server: {
+      middlewares: {
+        use: (
+          handler: (
+            request: { url?: string },
+            response: {
+              statusCode: number;
+              setHeader: (name: string, value: string) => void;
+              end: (content: Buffer) => void;
+            },
+            next: () => void,
+          ) => void,
+        ) => void;
+      };
+    }) {
+      server.middlewares.use((request, response, next) => {
+        const requestedPath = request.url?.split('?')[0] ?? '';
+        if (!requestedPath.startsWith('/assets/')) {
           next();
           return;
         }
+
+        const requestedName = decodeURIComponent(
+          requestedPath.slice('/assets/'.length),
+        );
+        const assetPath = path.resolve(importedAssetsPath, requestedName);
+        if (
+          !assetPath.startsWith(`${importedAssetsPath}${path.sep}`) ||
+          !fs.existsSync(assetPath) ||
+          !fs.statSync(assetPath).isFile()
+        ) {
+          next();
+          return;
+        }
+
         response.statusCode = 200;
-        response.setHeader('Content-Type', 'text/css; charset=utf-8');
-        response.end(fs.readFileSync(importedStylesheetPath));
+        response.setHeader(
+          'Content-Type',
+          requestedName.endsWith('.css')
+            ? 'text/css; charset=utf-8'
+            : 'text/javascript; charset=utf-8',
+        );
+        response.end(fs.readFileSync(assetPath));
       });
     },
     generateBundle(this: { emitFile: (asset: { type: 'asset'; fileName: string; source: Buffer }) => void }) {
-      if (fs.existsSync(importedStylesheetPath)) {
+      if (!fs.existsSync(importedAssetsPath)) {
+        return;
+      }
+
+      for (const fileName of fs.readdirSync(importedAssetsPath)) {
+        const sourcePath = path.join(importedAssetsPath, fileName);
+        const publicPath = path.resolve(
+          import.meta.dirname,
+          'public',
+          'assets',
+          fileName,
+        );
+        if (!fs.statSync(sourcePath).isFile() || fs.existsSync(publicPath)) {
+          continue;
+        }
         this.emitFile({
           type: 'asset',
-          fileName: importedStylesheetName,
-          source: fs.readFileSync(importedStylesheetPath),
+          fileName: `assets/${fileName}`,
+          source: fs.readFileSync(sourcePath),
         });
       }
     },
