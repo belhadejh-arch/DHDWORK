@@ -508,6 +508,11 @@ function InfoCard({ icon, label, value, ltr }: { icon: ReactNode; label: string;
 
 function EmployeeHome() {
   const { employee, isChecking, logout } = useEmployeeSession();
+  const [qrToken, setQrToken] = useState('');
+  const [attendanceAction, setAttendanceAction] = useState<'checkin' | 'checkout' | null>(null);
+  const [attendanceError, setAttendanceError] = useState('');
+  const { attendance, violations, isLoading, error, refresh } = useEmployeePortalData(employee);
+
   if (!employee && isChecking) return <LoadingScreen />;
   if (!employee) return <Redirect to="/portal/login" />;
   const fullName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 'الموظف';
@@ -515,10 +520,6 @@ function EmployeeHome() {
   const joinedDate = employee.joinedAt
     ? new Intl.DateTimeFormat('ar-DZ', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(employee.joinedAt))
     : 'غير محدد';
-  const { attendance, violations, isLoading, error, refresh } = useEmployeePortalData(employee);
-  const [qrToken, setQrToken] = useState('');
-  const [attendanceAction, setAttendanceAction] = useState<'checkin' | 'checkout' | null>(null);
-  const [attendanceError, setAttendanceError] = useState('');
   const today = new Date().toISOString().slice(0, 10);
   const todayAttendance = attendance.find((item) => String(item.date || '').slice(0, 10) === today);
 
@@ -794,13 +795,20 @@ function getCurrentPosition(): Promise<GeolocationPosition> {
   });
 }
 
-function useEmployeePortalData(employee: Employee) {
+function useEmployeePortalData(employee: Employee | null) {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [violations, setViolations] = useState<ViolationRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
+    if (!employee) {
+      setAttendance([]);
+      setViolations([]);
+      setIsLoading(false);
+      return;
+    }
+
     setError('');
     try {
       const headers = employeeAuthHeaders();
@@ -820,7 +828,7 @@ function useEmployeePortalData(employee: Employee) {
     } finally {
       setIsLoading(false);
     }
-  }, [employee.id]);
+  }, [employee?.id]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 

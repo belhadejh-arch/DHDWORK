@@ -344,21 +344,10 @@ export async function getEmployeeByCode(code: string) {
       }
     }
   } catch (err) {
-    console.warn("DB query employee by code failed, using fallback:", err);
+    console.error("DB query employee by code failed:", err);
+    throw err;
   }
 
-  const emp = memoryStore.employees.find((e) => {
-    const serial = String(e.serialNumber || e.employeeCode || "").toLowerCase();
-    const phone = String(e.phone || "").toLowerCase();
-    const pin = String(e.pinCode || "");
-    const empId = String(e.id);
-    return serial === q || phone === q || pin === q || empId === q;
-  });
-
-  if (emp) {
-    const office = memoryStore.offices.find((o) => o.id === emp.officeId);
-    return formatEmployee({ ...emp, officeName: office?.name });
-  }
   return null;
 }
 

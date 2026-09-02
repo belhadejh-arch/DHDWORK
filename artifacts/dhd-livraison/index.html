@@ -56,7 +56,6 @@
     <script defer src="/admin-drawer-touch.js"></script>
     <script defer src="/admin-domain-enhancements.js"></script>
     <script defer src="/admin-account-overview.js"></script>
-    <script defer src="/admin-login-identifiers.js"></script>
     <script defer src="/salary-prepayment-review.js"></script>
   </head>
   <body>
@@ -167,6 +166,7 @@
         var loadReactApp = function () {
           if (appLoaded) return;
           appLoaded = true;
+           fallback.classList.add('is-hidden');
           var script = document.createElement('script');
           script.type = 'module';
           script.crossOrigin = 'anonymous';
@@ -224,30 +224,10 @@
             button.disabled = false;
           }
         });
-        if (!isAdminEntry) {
-          loadReactApp();
-        } else {
-          var token = localStorage.getItem('dhd_admin_token');
-          if (token) {
-            fetch('/api/auth/me', {
-              credentials: 'include',
-              headers: { Accept: 'application/json', Authorization: 'Bearer ' + token }
-            }).then(function (response) {
-              return response.json().catch(function () { return {}; });
-            }).then(function (body) {
-              if (body && body.isAuthenticated && body.userType === 'admin') {
-                loadReactApp();
-              } else {
-                localStorage.removeItem('dhd_admin_token');
-                localStorage.removeItem('dhd_admin_profile');
-              }
-            }).catch(function () {
-              // Keep the identifier login visible during a temporary outage.
-              localStorage.removeItem('dhd_admin_token');
-              localStorage.removeItem('dhd_admin_profile');
-            });
-          }
-        }
+         // Always load the original application shell, including at the admin
+         // entry route. Its bundled login is the canonical admin login screen.
+         // The boot form remains available only if the bundle genuinely fails.
+         loadReactApp();
       })();
     </script>
   </body>
