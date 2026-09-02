@@ -113,12 +113,37 @@
     var profile = readProfile();
     var hasAdminToken = Boolean(localStorage.getItem(TOKEN_KEY));
 
-    if (isAdminSurface() && path === '/api/auth/me' && hasAdminToken && profile) {
+    // Do not use the optimistic cached session on the entry route. An expired
+    // token can otherwise redirect / -> /offices while revalidation is still
+    // pending, then reload back to / and repeat until the page looks blank.
+    var isAdminEntry = /^\/?$/.test(window.location.pathname);
+    if (isAdminSurface() && !isAdminEntry && path === '/api/auth/me' && hasAdminToken && profile) {
       window.setTimeout(revalidate, 0);
       return Promise.resolve(cachedMeResponse(profile));
     }
 
     var result = nativeFetch(input, init);
+    if (isAdminSurface() && path === '/api/auth/me') {
+      // The legacy auth provider treats a missing userType as an admin
+      // response. The unauthenticated API response intentionally omits that
+      // field, so normalize it to an explicit non-admin value to prevent a
+      // / -> /offices redirect loop after an expired token.
+      return result.then(function (response) {
+        if (!response.ok) return response;
+        return response.clone().json().then(function (data) {
+          if (data && data.isAuthenticated === false && !data.userType) {
+            return new Response(JSON.stringify(Object.assign({}, data, { userType: 'none' })), {
+              status: response.status,
+              statusText: response.statusText,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          return response;
+        }).catch(function () {
+          return response;
+        });
+      });
+    }
     if (path === '/api/auth/logout') {
       clearProfile();
     }

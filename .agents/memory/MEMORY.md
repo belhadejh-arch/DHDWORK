@@ -9,3 +9,4 @@
 - [DHD admin extensions and auth](dhd-admin-extension-auth.md) — global admin scripts load before login; never permanently cache an unauthenticated /auth/me result.
 - [DHD salary finalization](dhd-salary-finalization.md) — unpaid reviews are live; payment is idempotent and freezes an immutable payslip snapshot.
 - [DHD mobile scrolling](dhd-mobile-scrolling.md) — imported Admin uses a fixed viewport shell; phones must use one document scroller and never a global touch preventDefault.
+- [DHD legacy asset serving](dhd-legacy-asset-serving.md) — imported Vite bundles need every split chunk restored; serve valid public assets before backup copies and preserve MIME types.

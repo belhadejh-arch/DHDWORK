@@ -60,6 +60,23 @@ function importedStylesheetPlugin() {
         const requestedName = decodeURIComponent(
           requestedPath.slice('/assets/'.length),
         );
+        const publicAssetPath = path.resolve(
+          import.meta.dirname,
+          'public',
+          'assets',
+          requestedName,
+        );
+        if (
+          publicAssetPath.startsWith(
+            `${path.resolve(import.meta.dirname, 'public', 'assets')}${path.sep}`,
+          ) &&
+          fs.existsSync(publicAssetPath) &&
+          fs.statSync(publicAssetPath).isFile()
+        ) {
+          next();
+          return;
+        }
+
         const assetPath = path.resolve(importedAssetsPath, requestedName);
         if (
           !assetPath.startsWith(`${importedAssetsPath}${path.sep}`) ||
@@ -71,11 +88,24 @@ function importedStylesheetPlugin() {
         }
 
         response.statusCode = 200;
+        const extension = path.extname(requestedName).toLowerCase();
+        const contentTypes: Record<string, string> = {
+          '.css': 'text/css; charset=utf-8',
+          '.js': 'text/javascript; charset=utf-8',
+          '.mjs': 'text/javascript; charset=utf-8',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp',
+          '.gif': 'image/gif',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+          '.mp3': 'audio/mpeg',
+        };
         response.setHeader(
           'Content-Type',
-          requestedName.endsWith('.css')
-            ? 'text/css; charset=utf-8'
-            : 'text/javascript; charset=utf-8',
+          contentTypes[extension] ?? 'application/octet-stream',
         );
         response.end(fs.readFileSync(assetPath));
       });
