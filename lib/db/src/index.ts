@@ -26,6 +26,12 @@ export function getDb() {
   return dbInstance;
 }
 
-export const db = getDb();
+// Lazy db export to prevent startup crashes when DATABASE_URL is not present at build time
+export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+  get(_target, prop) {
+    const instance = getDb();
+    return (instance as any)[prop];
+  }
+});
 
 export * from "./schema";
