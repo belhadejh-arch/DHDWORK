@@ -1486,3 +1486,118 @@ body,
     padding-bottom: max(2rem, env(safe-area-inset-bottom));
   }
 }
+
+/*
+ * Last-resort mobile scroll boundary for every admin route.
+ * The imported shell is a fixed-height flex layout on desktop. On phones it
+ * must become normal document flow so a finger can scroll through every lazy
+ * loaded section, not only the first viewport of the nested content pane.
+ */
+@media (max-width: 767px) {
+  html,
+  body {
+    height: auto !important;
+    min-height: 100%;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    touch-action: pan-y;
+  }
+
+  #root {
+    height: auto !important;
+    min-height: 100svh !important;
+    overflow: visible !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100svh !important;
+    max-height: none !important;
+    overflow: visible !important;
+    touch-action: pan-y;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100svh !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > div.flex-1.overflow-y-auto {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex: none !important;
+    overflow: visible !important;
+    overflow-x: clip !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: auto;
+    touch-action: pan-y;
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  }
+
+  #root > div.flex.h-\[100dvh\] > main > header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /*
+   * The employee portal is shipped in the legacy bundle and uses its own
+   * shell instead of the admin flex shell above. Keep it in normal document
+   * flow as well; this only changes the scroll boundary, not its visuals.
+   */
+  .employee-shell,
+  .employee-shell > main.employee-enter {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100svh !important;
+    max-height: none !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+    touch-action: pan-y;
+  }
+
+  .employee-shell > main.employee-enter {
+    overflow-x: clip !important;
+    overflow-y: visible !important;
+  }
+
+  .employee-shell .overflow-x-auto {
+    max-width: 100% !important;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+  }
+
+  .employee-shell table {
+    max-width: 100%;
+  }
+
+  /* The open drawer remains its own intentional touch scroller. */
+  #root > div.flex.h-\[100dvh\] > .fixed.top-0.end-0.z-50 {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    overflow: hidden !important;
+    touch-action: pan-y;
+  }
+
+  #root > div.flex.h-\[100dvh\] > .fixed.top-0.end-0.z-50 > div,
+  #root > div.flex.h-\[100dvh\] .fixed.top-0.end-0.z-50 > div {
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+}
