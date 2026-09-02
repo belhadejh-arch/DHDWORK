@@ -1,20 +1,16 @@
 (() => {
   "use strict";
-
   let latestPreview = null;
   let latestPreviewUrl = "";
   const originalFetch = window.fetch.bind(window);
-
   const formatAmount = (value) =>
     `${Number(value || 0).toLocaleString("ar-DZ")} دج`;
-
   const adminHeaders = (accept = "application/json") => {
     const headers = new Headers({ Accept: accept });
     const token = localStorage.getItem("dhd_admin_token");
     if (token) headers.set("Authorization", `Bearer ${token}`);
     return headers;
   };
-
   const fetchAdminJson = async (path, options = {}) => {
     const headers = adminHeaders();
     if (options.body) headers.set("Content-Type", "application/json");
@@ -27,7 +23,6 @@
     if (!response.ok) throw new Error(body?.message || body?.error || `HTTP ${response.status}`);
     return body;
   };
-
   const notify = (message) => {
     const note = document.createElement("div");
     note.className = "dhd-salary-review-toast";
@@ -35,7 +30,6 @@
     document.body.appendChild(note);
     window.setTimeout(() => note.remove(), 3600);
   };
-
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
     const input = args[0];
@@ -49,19 +43,16 @@
     }
     return response;
   };
-
   async function openPreviewPdf(button) {
     if (!latestPreviewUrl) {
       notify("تعذر تحديد رابط معاينة PDF");
       return;
     }
-
     const popup = window.open("about:blank", "_blank");
     if (!popup) {
       notify("اسمح بفتح النوافذ المنبثقة لعرض كشف الراتب");
       return;
     }
-
     button.disabled = true;
     const oldText = button.textContent;
     button.textContent = "جارٍ إنشاء PDF...";
@@ -92,38 +83,36 @@
       button.textContent = oldText;
     }
   }
-
   function addStandaloneReviewButtons() {
     document.querySelectorAll("button").forEach((payButton) => {
-      if (payButton.textContent?.trim() !== "دفع" || payButton.dataset.dhdReviewBound === "1") return;
+      const label = payButton.textContent?.trim() || "";
+      if (label !== "تحويل" && label !== "دفع") return;
+      if (payButton.dataset.dhdReviewBound === "1") return;
+      payButton.textContent = "تحويل";
       const row = payButton.closest("tr");
       if (!row) return;
       payButton.dataset.dhdReviewBound = "1";
-
       const reviewButton = document.createElement("button");
       reviewButton.type = "button";
       reviewButton.className = "dhd-salary-review-trigger";
       reviewButton.textContent = "مراجعة الكشف";
-      reviewButton.title = "راجع الحساب وPDF قبل تنفيذ الدفع";
+      reviewButton.title = "راجع الحساب وPDF قبل تنفيذ التحويل";
       reviewButton.addEventListener("click", () => payButton.click());
       payButton.parentElement?.insertBefore(reviewButton, payButton);
     });
   }
-
   function addGeneratedSalaryGuards() {
     document.querySelectorAll("tr button.bg-emerald-600").forEach((button) => {
       const label = button.textContent?.trim() || "";
-      if (label === "دفع" || label.includes("تأكيد") || button.dataset.dhdGeneratedReviewPay === "1") return;
+      if (label === "تحويل" || label === "دفع" || label.includes("تأكيد") || button.dataset.dhdGeneratedReviewPay === "1") return;
       button.dataset.dhdGeneratedReviewPay = "1";
-      button.textContent = "مراجعة ثم دفع";
-      button.title = "لا يمكن الدفع قبل مراجعة الكشف";
+      button.textContent = "مراجعة ثم تحويل";
+      button.title = "لا يمكن التحويل قبل مراجعة الكشف";
     });
   }
-
   function closeGeneratedReview() {
     document.querySelector("[data-dhd-generated-review-overlay]")?.remove();
   }
-
   async function showGeneratedSalaryReview(payButton) {
     closeGeneratedReview();
     const row = payButton.closest("tr");
@@ -134,17 +123,16 @@
       notify("تعذر تحديد بيانات الراتب للمراجعة");
       return;
     }
-
     const month = period[1];
     const year = Number(period[2]);
     const overlay = document.createElement("div");
     overlay.dataset.dhdGeneratedReviewOverlay = "1";
     overlay.className = "dhd-generated-review-overlay";
     overlay.innerHTML = `
-      <section role="dialog" aria-modal="true" aria-label="مراجعة كشف الراتب قبل الدفع" class="dhd-generated-review-dialog">
+      <section role="dialog" aria-modal="true" aria-label="مراجعة كشف الراتب قبل التحويل" class="dhd-generated-review-dialog">
         <header>
           <div>
-            <h2>مراجعة كشف الراتب قبل الدفع</h2>
+            <h2>مراجعة كشف الراتب قبل التحويل</h2>
             <p class="dhd-generated-review-name"></p>
           </div>
           <button type="button" class="dhd-generated-review-close" aria-label="إغلاق">×</button>
@@ -161,7 +149,6 @@
       if (event.target === overlay) closeGeneratedReview();
     });
     document.body.appendChild(overlay);
-
     try {
       const [preview, salaryRows] = await Promise.all([
         fetchAdminJson(`/api/salaries/preview?employeeId=${employeeId}&month=${month}&year=${year}`),
@@ -173,50 +160,51 @@
         item.status !== "paid"
       );
       if (!salary) throw new Error("تعذر العثور على سجل راتب غير مدفوع");
-
       latestPreview = preview;
       latestPreviewUrl = preview.previewPdfUrl || "";
       const summary = preview.summary || preview;
       const body = overlay.querySelector(".dhd-generated-review-body");
       body.innerHTML = `
         <div class="dhd-salary-review-state">
-          <strong>قيد المراجعة قبل الدفع</strong>
-          <span>الحساب أدناه حي، ولن يصبح الراتب مدفوعًا إلا بعد الضغط على زر التأكيد النهائي.</span>
+          <strong>قيد المراجعة قبل التحويل</strong>
+          <span>الحساب أدناه حي من قاعدة البيانات، ولن يتم تسجيل التحويل إلا بعد الضغط على زر التأكيد النهائي.</span>
         </div>
         <div class="dhd-generated-review-breakdown">
           <div><span>الراتب الأساسي</span><b>${formatAmount(summary.baseSalary)}</b></div>
-          <div><span>المكافآت والإضافي</span><b class="positive">+ ${formatAmount(Number(summary.bonusTotal || 0) + Number(summary.overtimeBonus || 0))}</b></div>
-          <div><span>خصم الغياب</span><b class="negative">- ${formatAmount(summary.absenceDeduction)}</b></div>
+          <div><span>أيام الحضور</span><b>${summary.presentDays || 0} يوم</b></div>
+          <div><span>الغياب</span><b class="negative">${summary.absentDays || 0} يوم (${formatAmount(summary.absenceDeduction)})</b></div>
+          <div><span>التأخير</span><b class="negative">${summary.lateMinutes || 0} دقيقة (${formatAmount(summary.lateDeduction)})</b></div>
+          <div><span>المخالفات</span><b class="negative">${formatAmount(summary.violationTotal)}</b></div>
+          <div><span>السلف</span><b class="negative">${formatAmount(summary.advanceTotal)}</b></div>
+          <div><span>الزيادات والمكافآت</span><b class="positive">+ ${formatAmount(Number(summary.bonusTotal || 0) + Number(summary.overtimeBonus || 0))}</b></div>
           <div><span>إجمالي الخصومات</span><b class="negative">- ${formatAmount(summary.totalDeductions)}</b></div>
-          <div class="net"><span>صافي الراتب النهائي</span><b>${formatAmount(summary.finalSalary)}</b></div>
+          <div class="net"><span>صافي المبلغ المستحق</span><b>${formatAmount(summary.finalSalary)}</b></div>
         </div>
         <div class="dhd-generated-review-actions"></div>
       `;
-
       const actions = body.querySelector(".dhd-generated-review-actions");
       const pdfButton = document.createElement("button");
       pdfButton.type = "button";
       pdfButton.className = "dhd-salary-preview-pdf";
-      pdfButton.textContent = "فتح PDF قبل الدفع";
+      pdfButton.textContent = "فتح PDF قبل التحويل";
       pdfButton.addEventListener("click", () => openPreviewPdf(pdfButton));
-
       const confirmButton = document.createElement("button");
       confirmButton.type = "button";
       confirmButton.className = "dhd-generated-review-confirm";
-      confirmButton.textContent = "تأكيد الدفع وإشعار الموظف";
+      confirmButton.textContent = "تأكيد التحويل وإشعار الموظف";
       confirmButton.addEventListener("click", async () => {
         confirmButton.disabled = true;
-        confirmButton.textContent = "جارٍ تنفيذ الدفع...";
+        confirmButton.textContent = "جارٍ تنفيذ التحويل...";
         try {
           await fetchAdminJson(`/api/salaries/${salary.id}/pay`, { method: "PATCH" });
           closeGeneratedReview();
-          notify("تم دفع الراتب وتجميد كشفه النهائي");
+          notify("تم تحويل الراتب بنجاح وتجميد كشفه النهائي");
           window.setTimeout(() => location.reload(), 700);
         } catch (error) {
-          console.error("[salary-review] payment failed", error);
-          notify(error.message || "تعذر تنفيذ الدفع");
+          console.error("[salary-review] transfer failed", error);
+          notify(error.message || "تعذر تنفيذ التحويل");
           confirmButton.disabled = false;
-          confirmButton.textContent = "تأكيد الدفع وإشعار الموظف";
+          confirmButton.textContent = "تأكيد التحويل وإشعار الموظف";
         }
       });
       actions.append(pdfButton, confirmButton);
@@ -226,22 +214,21 @@
         `<p class="dhd-generated-review-error">تعذر تحميل مراجعة الراتب. أغلق النافذة وحاول مرة أخرى.</p>`;
     }
   }
-
   function decoratePaymentDialog() {
     if (!latestPreview) return;
     const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-    const dialog = dialogs.find((item) => item.textContent?.includes("صرف الراتب"));
+    const dialog = dialogs.find((item) => item.textContent?.includes("صرف الراتب") || item.textContent?.includes("الراتب"));
     if (!dialog) return;
-
     const previous = dialog.querySelector("[data-dhd-salary-review-summary]");
     if (previous?.dataset.previewAt === String(latestPreview.summary?.calculatedAt || "")) return;
     previous?.remove();
-
     const confirmButton = Array.from(dialog.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("تأكيد الدفع"));
+      .find((button) => button.textContent?.includes("تأكيد") || button.textContent?.includes("دفع") || button.textContent?.includes("تحويل"));
+    if (confirmButton) {
+      confirmButton.textContent = "تأكيد التحويل";
+    }
     const footer = confirmButton?.parentElement;
     if (!footer) return;
-
     const summary = latestPreview.summary || latestPreview;
     const box = document.createElement("section");
     box.dataset.dhdSalaryReviewSummary = "1";
@@ -249,31 +236,34 @@
     box.className = "dhd-salary-review-summary";
     box.innerHTML = `
       <div class="dhd-salary-review-state">
-        <strong>قيد المراجعة قبل الدفع</strong>
+        <strong>قيد المراجعة قبل التحويل</strong>
         <span>فتح المعاينة أو PDF لا يغيّر حالة الراتب إلى مدفوع.</span>
       </div>
       <div class="dhd-salary-review-totals">
-        <div><span>خصم الغياب</span><b>${formatAmount(summary.absenceDeduction)}</b></div>
+        <div><span>أيام الحضور</span><b>${summary.presentDays || 0}</b></div>
+        <div><span>الغياب</span><b>${summary.absentDays || 0}</b></div>
+        <div><span>التأخير</span><b>${formatAmount(summary.lateDeduction)}</b></div>
+        <div><span>المخالفات</span><b>${formatAmount(summary.violationTotal)}</b></div>
+        <div><span>السلف</span><b>${formatAmount(summary.advanceTotal)}</b></div>
+        <div><span>الزيادات</span><b>${formatAmount(summary.bonusTotal)}</b></div>
         <div><span>إجمالي الخصومات</span><b>${formatAmount(summary.totalDeductions)}</b></div>
+        <div><span>صافي المستحق</span><b>${formatAmount(summary.finalSalary)}</b></div>
       </div>
     `;
-
     const pdfButton = document.createElement("button");
     pdfButton.type = "button";
     pdfButton.className = "dhd-salary-preview-pdf";
-    pdfButton.textContent = "فتح PDF قبل الدفع";
+    pdfButton.textContent = "فتح PDF قبل التحويل";
     pdfButton.addEventListener("click", () => openPreviewPdf(pdfButton));
     box.appendChild(pdfButton);
     dialog.insertBefore(box, footer);
   }
-
   function enhanceSalaryReview() {
     if (!location.pathname.includes("/salaries")) return;
     addStandaloneReviewButtons();
     addGeneratedSalaryGuards();
     decoratePaymentDialog();
   }
-
   const style = document.createElement("style");
   style.textContent = `
     .dhd-salary-review-trigger,
@@ -307,17 +297,17 @@
       font-size: .78rem;
     }
     .dhd-salary-review-state span { color: #78716c; font-weight: 500; }
-    .dhd-salary-review-totals { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+    .dhd-salary-review-totals { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; }
     .dhd-salary-review-totals > div {
       display: grid;
       gap: .15rem;
       border-radius: .55rem;
-      padding: .55rem .65rem;
+      padding: .5rem .6rem;
       background: white;
       color: #78716c;
       font-size: .72rem;
     }
-    .dhd-salary-review-totals b { color: #be123c; font-size: .9rem; }
+    .dhd-salary-review-totals b { color: #be123c; font-size: .85rem; }
     .dhd-salary-preview-pdf { width: 100%; }
     .dhd-salary-review-toast {
       position: fixed;
@@ -345,7 +335,7 @@
       backdrop-filter: blur(3px);
     }
     .dhd-generated-review-dialog {
-      width: min(100%, 34rem);
+      width: min(100%, 36rem);
       max-height: calc(100dvh - 2rem);
       overflow: auto;
       border-radius: 1rem;
@@ -385,7 +375,7 @@
       display: flex;
       justify-content: space-between;
       gap: 1rem;
-      padding: .65rem .8rem;
+      padding: .6rem .8rem;
       border-bottom: 1px solid #e2e8f0;
       font-size: .82rem;
     }
@@ -411,19 +401,19 @@
     .dhd-generated-review-confirm:hover { background: #047857; }
     .dhd-generated-review-confirm:disabled { opacity: .65; cursor: wait; }
     @media (max-width: 640px) {
-      .dhd-salary-review-totals { grid-template-columns: 1fr; }
+      .dhd-salary-review-totals { grid-template-columns: 1fr 1fr; }
       .dhd-salary-review-trigger { width: 100%; }
       .dhd-generated-review-actions { grid-template-columns: 1fr; }
     }
   `;
   document.head.appendChild(style);
-
   new MutationObserver(enhanceSalaryReview).observe(document.documentElement, {
     childList: true,
     subtree: true,
   });
   document.addEventListener("click", (event) => {
-    const payButton = event.target.closest?.("button[data-dhd-generated-review-pay='1']");
+    const payButton = event.target.closest?.("button[data-dhd-generated-review-pay='1']") ||
+                      (event.target.closest?.("button") && event.target.closest("button").textContent?.trim() === "تحويل");
     if (!payButton || !location.pathname.includes("/salaries")) return;
     event.preventDefault();
     event.stopPropagation();
