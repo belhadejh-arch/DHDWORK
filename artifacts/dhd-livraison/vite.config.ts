@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
@@ -13,10 +14,46 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH ?? '/';
+const importedStylesheetName = 'assets/index-BSGrDEhh.css';
+const importedStylesheetPath = path.resolve(
+  import.meta.dirname,
+  '..',
+  '..',
+  '.migration-backup',
+  'public',
+  importedStylesheetName,
+);
+
+function importedStylesheetPlugin() {
+  return {
+    name: 'serve-imported-stylesheet',
+    configureServer(server: { middlewares: { use: (path: string, handler: (req: unknown, res: { statusCode: number; setHeader: (name: string, value: string) => void; end: (content: Buffer) => void }, next: () => void) => void) => void } }) {
+      server.middlewares.use(`/${importedStylesheetName}`, (_request, response, next) => {
+        if (!fs.existsSync(importedStylesheetPath)) {
+          next();
+          return;
+        }
+        response.statusCode = 200;
+        response.setHeader('Content-Type', 'text/css; charset=utf-8');
+        response.end(fs.readFileSync(importedStylesheetPath));
+      });
+    },
+    generateBundle(this: { emitFile: (asset: { type: 'asset'; fileName: string; source: Buffer }) => void }) {
+      if (fs.existsSync(importedStylesheetPath)) {
+        this.emitFile({
+          type: 'asset',
+          fileName: importedStylesheetName,
+          source: fs.readFileSync(importedStylesheetPath),
+        });
+      }
+    },
+  };
+}
 
 export default defineConfig({
   base: basePath,
   plugins: [
+    importedStylesheetPlugin(),
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),

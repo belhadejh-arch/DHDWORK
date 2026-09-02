@@ -1486,3 +1486,97 @@ body,
     padding-bottom: max(2rem, env(safe-area-inset-bottom));
   }
 }
+
+/*
+ * Mobile scroll contract
+ *
+ * The admin bundle owns a desktop-style flex viewport with an inner
+ * `overflow-y-auto` region. That is useful on a large screen, but it creates
+ * two competing touch scrollers on phones. Keep the drawer fixed when it is
+ * open, while making the document itself the only page scroller everywhere
+ * else. This block is intentionally last so it wins over the utility classes
+ * emitted by the imported bundle and over the older compatibility rules above.
+ */
+@media (max-width: 767px) {
+  html,
+  body {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior-y: auto !important;
+    scroll-behavior: auto !important;
+    touch-action: auto !important;
+  }
+
+  body {
+    position: static !important;
+  }
+
+  #root {
+    height: auto !important;
+    min-height: 100dvh !important;
+    overflow: visible !important;
+    touch-action: auto !important;
+  }
+
+  #root > [class~="h-[100dvh]"] {
+    display: block !important;
+    height: auto !important;
+    min-height: 100dvh !important;
+    max-height: none !important;
+    overflow: visible !important;
+    touch-action: auto !important;
+  }
+
+  #root > [class~="h-[100dvh]"] > main {
+    display: block !important;
+    height: auto !important;
+    min-height: 100dvh !important;
+    overflow: visible !important;
+    touch-action: auto !important;
+  }
+
+  #root > [class~="h-[100dvh]"] > main > [class~="overflow-y-auto"] {
+    display: block !important;
+    flex: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overscroll-behavior-y: auto !important;
+    touch-action: auto !important;
+    -webkit-overflow-scrolling: auto;
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom) + 1rem);
+  }
+
+  /* Employee pages use a fixed bottom navigation bar. Reserve space for it
+     in normal document flow so the last card is never covered. */
+  #root > .employee-shell {
+    min-height: 100dvh !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom)) !important;
+    touch-action: auto !important;
+  }
+
+  #root > .employee-shell > header {
+    touch-action: auto !important;
+  }
+
+  /* The drawer and dialogs are intentional, bounded interaction surfaces.
+     They remain independently scrollable only while open. */
+  #root > [class~="h-[100dvh]"] > [class~="fixed"][class~="top-0"][class~="end-0"] {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    overflow: hidden !important;
+    touch-action: auto !important;
+  }
+
+  #root > [class~="h-[100dvh]"] > [class~="fixed"][class~="top-0"][class~="end-0"] > * {
+    max-height: 100% !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
