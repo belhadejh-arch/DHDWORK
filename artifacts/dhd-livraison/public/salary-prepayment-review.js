@@ -56,6 +56,24 @@
     document.body.appendChild(note);
     window.setTimeout(() => note.remove(), 3600);
   };
+  const getSalaryContext = (button) => {
+    const row = button.closest("tr");
+    const employeeLink = row?.querySelector('a[href*="/employees/"]');
+    const employeeId = Number(employeeLink?.getAttribute("href")?.match(/employees\/(\d+)/)?.[1]);
+    const currentDate = new Date();
+    const period = row?.textContent?.match(/(0[1-9]|1[0-2])\s*[\/-]\s*(20\d{2})/) || [
+      "",
+      String(currentDate.getMonth() + 1).padStart(2, "0"),
+      String(currentDate.getFullYear()),
+    ];
+    return {
+      row,
+      employeeLink,
+      employeeId,
+      month: period[1],
+      year: Number(period[2]),
+    };
+  };
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
     const input = args[0];
@@ -123,7 +141,11 @@
       reviewButton.className = "dhd-salary-review-trigger";
       reviewButton.textContent = "مراجعة الكشف";
       reviewButton.title = "راجع الحساب وPDF قبل تنفيذ التحويل";
-      reviewButton.addEventListener("click", () => payButton.click());
+    reviewButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      payButton.click();
+    });
       payButton.parentElement?.insertBefore(reviewButton, payButton);
     });
   }
@@ -136,26 +158,66 @@
       button.title = "لا يمكن التحويل قبل مراجعة الكشف";
     });
   }
+  async function postponeSalary(button) {
+    const context = getSalaryContext(button);
+    if (!context.employeeId) {
+      notify("تعذر تحديد الموظف لتأجيل الراتب");
+      return;
+    }
+    const rawDays = window.prompt("تأجيل الراتب بعدد الأيام:", "1");
+    if (rawDays === null) return;
+    const days = Number(rawDays);
+    if (!Number.isInteger(days) || days < 1 || days > 31) {
+      notify("أدخل عدد أيام صحيحًا بين 1 و31");
+      return;
+    }
+    button.disabled = true;
+    const oldText = button.textContent;
+    button.textContent = "جارٍ التأجيل...";
+    try {
+      const salaryRows = await fetchAdminJson(`/api/salaries?employeeId=${context.employeeId}`);
+      let salary = salaryRows.find((item) =>
+        String(item.month).padStart(2, "0") === context.month &&
+        Number(item.year) === context.year &&
+        item.status !== "paid" &&
+        item.status !== "received"
+      );
+      if (!salary) {
+        salary = await fetchAdminJson("/api/salaries/single", {
+          method: "POST",
+          body: JSON.stringify({
+            employeeId: context.employeeId,
+            month: context.month,
+            year: context.year,
+          }),
+        });
+      }
+      if (!salary?.id) throw new Error("تعذر إنشاء سجل الراتب");
+      const postponedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      await fetchAdminJson(`/api/salaries/${salary.id}/postpone`, {
+        method: "PATCH",
+        body: JSON.stringify({ postponedUntil }),
+      });
+      notify(`تم تأجيل الراتب لمدة ${days} يوم`);
+      window.setTimeout(() => location.reload(), 500);
+    } catch (error) {
+      console.error("[salary-review] postpone failed", error);
+      notify(error.message || "تعذر تأجيل الراتب");
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  }
   function closeGeneratedReview() {
     document.querySelector("[data-dhd-generated-review-overlay]")?.remove();
   }
   async function showGeneratedSalaryReview(payButton) {
     closeGeneratedReview();
-    const row = payButton.closest("tr");
-    const employeeLink = row?.querySelector('a[href*="/employees/"]');
-    const employeeId = Number(employeeLink?.getAttribute("href")?.match(/employees\/(\d+)/)?.[1]);
-    const currentDate = new Date();
-    const period = row?.textContent?.match(/(0[1-9]|1[0-2])\s*[\/-]\s*(20\d{2})/) || [
-      "",
-      String(currentDate.getMonth() + 1).padStart(2, "0"),
-      String(currentDate.getFullYear()),
-    ];
-    if (!employeeId) {
+    const context = getSalaryContext(payButton);
+    if (!context.employeeId) {
       notify("تعذر تحديد بيانات الراتب للمراجعة");
       return;
     }
-    const month = period[1];
-    const year = Number(period[2]);
+    const { employeeId, month, year, employeeLink } = context;
     const overlay = document.createElement("div");
     overlay.dataset.dhdGeneratedReviewOverlay = "1";
     overlay.className = "dhd-generated-review-overlay";
@@ -544,13 +606,23 @@
     subtree: true,
   });
   document.addEventListener("click", (event) => {
-    const payButton = event.target.closest?.("button[data-dhd-generated-review-pay='1']") ||
-                      (event.target.closest?.("button") && event.target.closest("button").textContent?.trim() === "تحويل");
-    if (!payButton || !location.pathname.includes("/salaries")) return;
+    const clickedButton = event.target.closest?.("button");
+    const label = clickedButton?.textContent?.trim() || "";
+    const isReviewOrPayment = clickedButton && (
+      clickedButton.dataset.dhdGeneratedReviewPay === "1" ||
+      ["مراجعة الكشف", "مراجعة ثم تحويل"].includes(label) ||
+      /^(تحويل|دفع)(\s+الراتب)?$/.test(label)
+    );
+    const isPostpone = clickedButton && /^(تأجيل|تأجيل الدفع|تأجيل الراتب)$/.test(label);
+    if ((!isReviewOrPayment && !isPostpone) || !location.pathname.includes("/salaries")) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    showGeneratedSalaryReview(payButton);
+    if (isPostpone) {
+      postponeSalary(clickedButton);
+    } else {
+      showGeneratedSalaryReview(clickedButton);
+    }
   }, true);
   window.addEventListener("popstate", enhanceSalaryReview);
   window.setTimeout(enhanceSalaryReview, 800);
