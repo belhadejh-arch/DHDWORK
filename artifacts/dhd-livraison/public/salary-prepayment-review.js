@@ -243,16 +243,15 @@
     });
     document.body.appendChild(overlay);
     try {
-      const [preview, salaryRows] = await Promise.all([
-        fetchAdminJson(`/api/salaries/preview?employeeId=${employeeId}&month=${month}&year=${year}`),
-        fetchAdminJson(`/api/salaries?employeeId=${employeeId}`),
-      ]);
-      let salary = salaryRows.find((item) =>
-        String(item.month).padStart(2, "0") === month &&
-        Number(item.year) === year &&
-        item.status !== "paid" &&
-        item.status !== "received"
+      // The preview endpoint already returns the complete live calculation and
+      // the persisted salary when one exists. Do not make a second list call
+      // here: a failure in that unrelated request used to hide a valid review.
+      const preview = await fetchAdminJson(
+        `/api/salaries/preview?employeeId=${encodeURIComponent(employeeId)}&month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}`,
       );
+      const salary = preview?.salary && preview.salary.id != null
+        ? preview.salary
+        : null;
       latestPreview = preview;
       latestPreviewUrl = preview.previewPdfUrl || "";
       const summary = preview.summary || preview;
@@ -373,7 +372,7 @@
     } catch (error) {
       console.error("[salary-review] generated salary review failed", error);
       overlay.querySelector(".dhd-generated-review-body").innerHTML =
-        `<p class="dhd-generated-review-error">تعذر تحميل مراجعة الراتب. أغلق النافذة وحاول مرة أخرى.</p>`;
+        `<p class="dhd-generated-review-error">تعذر تحميل مراجعة الراتب: ${escapeHtml(error?.message || "خطأ غير معروف")}</p>`;
     }
   }
   function decoratePaymentDialog() {
@@ -611,22 +610,15 @@
       clickedButton?.getAttribute("aria-label")?.trim() ||
       clickedButton?.getAttribute("title")?.trim() ||
       "";
-    const isReviewOrPayment = clickedButton && (
-      clickedButton.dataset.dhdGeneratedReviewPay === "1" ||
-      ["مراجعة الكشف", "مراجعة ثم تحويل"].includes(label) ||
-      /^(تحويل|دفع)(\s+الراتب)?$/.test(label) ||
-      /^(Transfer|Pay)$/i.test(label)
-    );
     const isPostpone = clickedButton && /^(تأجيل|تأجيل الدفع|تأجيل الراتب|Postpone)$/i.test(label);
-    if ((!isReviewOrPayment && !isPostpone) || !location.pathname.includes("/salaries")) return;
+    // The React salary page already owns the review and payment flow. Never
+    // intercept those buttons here: doing so prevents its modal mutation and
+    // turns a normal payment click into a second, fragile review implementation.
+    if (!isPostpone || !location.pathname.includes("/salaries")) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    if (isPostpone) {
-      postponeSalary(clickedButton);
-    } else {
-      showGeneratedSalaryReview(clickedButton);
-    }
+    postponeSalary(clickedButton);
   }, true);
   window.addEventListener("popstate", enhanceSalaryReview);
   window.setTimeout(enhanceSalaryReview, 800);

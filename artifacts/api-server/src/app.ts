@@ -1171,7 +1171,15 @@ async function postponeSalary(req: express.Request, res: express.Response) {
   if (current.status === 'paid' || current.status === 'received') {
     return res.status(409).json({ message: 'لا يمكن تعديل راتب تم دفعه' });
   }
-  const s = await updateSalaryStatus(Number(req.params.id), 'postponed', { postponedUntil: req.body?.postponedUntil });
+  let postponedUntil = req.body?.postponedUntil;
+  if (!postponedUntil && req.body?.days != null) {
+    const days = Number(req.body.days);
+    if (!Number.isInteger(days) || days < 1 || days > 31) {
+      return res.status(400).json({ message: 'مدة التأجيل يجب أن تكون بين 1 و31 يومًا' });
+    }
+    postponedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  }
+  const s = await updateSalaryStatus(Number(req.params.id), 'postponed', { postponedUntil });
   if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
   return res.json({ ...s, ok: true });
 }
