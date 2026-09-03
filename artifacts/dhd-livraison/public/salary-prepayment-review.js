@@ -607,13 +607,17 @@
   });
   document.addEventListener("click", (event) => {
     const clickedButton = event.target.closest?.("button");
-    const label = clickedButton?.textContent?.trim() || "";
+    const label = clickedButton?.textContent?.trim() ||
+      clickedButton?.getAttribute("aria-label")?.trim() ||
+      clickedButton?.getAttribute("title")?.trim() ||
+      "";
     const isReviewOrPayment = clickedButton && (
       clickedButton.dataset.dhdGeneratedReviewPay === "1" ||
       ["مراجعة الكشف", "مراجعة ثم تحويل"].includes(label) ||
-      /^(تحويل|دفع)(\s+الراتب)?$/.test(label)
+      /^(تحويل|دفع)(\s+الراتب)?$/.test(label) ||
+      /^(Transfer|Pay)$/i.test(label)
     );
-    const isPostpone = clickedButton && /^(تأجيل|تأجيل الدفع|تأجيل الراتب)$/.test(label);
+    const isPostpone = clickedButton && /^(تأجيل|تأجيل الدفع|تأجيل الراتب|Postpone)$/i.test(label);
     if ((!isReviewOrPayment && !isPostpone) || !location.pathname.includes("/salaries")) return;
     event.preventDefault();
     event.stopPropagation();
