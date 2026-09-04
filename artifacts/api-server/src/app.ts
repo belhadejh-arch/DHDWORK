@@ -28,6 +28,24 @@ function consumePdfToken(token: string | undefined, salaryId: number): boolean {
   _pdfTokens.delete(token); // single-use
   return true;
 }
+
+const _previewPdfTokens = new Map<string, { employeeId: number; month: string; year: number; expiresAt: number }>();
+
+function issuePreviewPdfToken(employeeId: number, month: string, year: number): string {
+  const token = crypto.randomBytes(16).toString('hex');
+  _previewPdfTokens.set(token, { employeeId, month, year, expiresAt: Date.now() + 120_000 });
+  const now = Date.now();
+  for (const [t, v] of _previewPdfTokens) { if (v.expiresAt < now) _previewPdfTokens.delete(t); }
+  return token;
+}
+
+function consumePreviewPdfToken(token: string | undefined): { employeeId: number; month: string; year: number } | null {
+  if (!token) return null;
+  const entry = _previewPdfTokens.get(token);
+  if (!entry || entry.expiresAt < Date.now()) return null;
+  _previewPdfTokens.delete(token);
+  return { employeeId: entry.employeeId, month: entry.month, year: entry.year };
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -1012,6 +1030,8 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
   if (!complete) return null;
   const payload = toPayslipPayload(complete);
   const summary = complete.summary;
+  const previewToken = issuePreviewPdfToken(employeeId, normalizedMonth, numericYear);
+  const pdfToken = complete.salary?.id != null ? issuePdfToken(Number(complete.salary.id)) : previewToken;
   return {
     ...payload,
     ...summary,
@@ -1030,7 +1050,9 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
     previewState: complete.salary.status === 'paid' || complete.salary.status === 'received'
       ? 'paid'
       : 'review_before_payment',
-    previewPdfUrl: `/api/salaries/preview/pdf?employeeId=${employeeId}&month=${encodeURIComponent(normalizedMonth)}&year=${numericYear}`,
+    previewPdfUrl: complete.salary?.id != null
+      ? `/api/salaries/${complete.salary.id}/pdf?t=${pdfToken}`
+      : `/api/salaries/preview/pdf?employeeId=${employeeId}&month=${encodeURIComponent(normalizedMonth)}&year=${numericYear}&t=${previewToken}`,
   };
 }
 
@@ -1082,10 +1104,15 @@ apiRouter.get('/salaries/preview', async (req, res) => {
 });
 
 apiRouter.get('/salaries/preview/pdf', async (req, res) => {
-  if (!await requireAdmin(req, res)) return;
-  const employeeId = Number(req.query.employeeId);
-  const month = String(req.query.month || '').padStart(2, '0');
-  const year = Number(req.query.year);
+  const tokenOk = consumePreviewPdfToken(req.query.t as string | undefined);
+  let employeeId = tokenOk ? tokenOk.employeeId : Number(req.query.employeeId);
+  let month = tokenOk ? tokenOk.month : String(req.query.month || '').padStart(2, '0');
+  let year = tokenOk ? tokenOk.year : Number(req.query.year);
+
+  if (!tokenOk) {
+    if (!await requireAdmin(req, res)) return;
+  }
+
   if (!Number.isInteger(employeeId) || employeeId <= 0 ||
       !/^(0[1-9]|1[0-2])$/.test(month) ||
       !Number.isInteger(year) || year < 2000 || year > 2200) {

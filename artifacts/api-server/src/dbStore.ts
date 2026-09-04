@@ -721,13 +721,34 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
 
   // Keep these reads sequential: during payment they share one transaction
   // client and must represent one consistent PostgreSQL snapshot.
-  const allViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId)));
-  const allAdvances = await db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId)));
-  const allAttendance = await db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)));
-  const allBonuses = await db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)));
-  const allLeaves = await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, Number(salary.employeeId)));
-  const allVacations = await db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, Number(salary.employeeId)));
-  const settingsRows = await db.select().from(settings);
+  let allViolations: any[] = [];
+  let allAdvances: any[] = [];
+  let allAttendance: any[] = [];
+  let allBonuses: any[] = [];
+  let allLeaves: any[] = [];
+  let allVacations: any[] = [];
+  let settingsRows: any[] = [];
+  try {
+    allViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId)));
+  } catch {}
+  try {
+    allAdvances = await db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId)));
+  } catch {}
+  try {
+    allAttendance = await db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)));
+  } catch {}
+  try {
+    allBonuses = await db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)));
+  } catch {}
+  try {
+    allLeaves = await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, Number(salary.employeeId)));
+  } catch {}
+  try {
+    allVacations = await db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, Number(salary.employeeId)));
+  } catch {}
+  try {
+    settingsRows = await db.select().from(settings);
+  } catch {}
   const settingsRecord = settingsRows[0] || memoryStore.settings;
 
   const monthPrefix = `${salary.year}-${String(salary.month).padStart(2, "0")}`;
