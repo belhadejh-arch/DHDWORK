@@ -75,8 +75,18 @@
     };
   };
   window.fetch = async (...args) => {
-    const response = await originalFetch(...args);
-    const input = args[0];
+    // The currently shipped employee portal bundle predates the /api proxy
+    // prefix for receipt confirmation. Normalize that one legacy request at
+    // the boundary so it reaches the API service instead of the Vite app.
+    const requestArgs = [...args];
+    if (
+      typeof requestArgs[0] === "string" &&
+      /^\/employee\/salaries\/\d+\/receive(?:\?|$)/.test(requestArgs[0])
+    ) {
+      requestArgs[0] = `/api${requestArgs[0]}`;
+    }
+    const response = await originalFetch(...requestArgs);
+    const input = requestArgs[0];
     const requestUrl = typeof input === "string" ? input : input?.url || "";
     if (requestUrl.includes("/salaries/preview?") && response.ok) {
       response.clone().json().then((payload) => {
@@ -132,30 +142,23 @@
       const label = payButton.textContent?.trim() || "";
       if (label !== "تحويل" && label !== "دفع") return;
       if (payButton.dataset.dhdReviewBound === "1") return;
-      payButton.textContent = "تحويل";
       const row = payButton.closest("tr");
       if (!row) return;
       payButton.dataset.dhdReviewBound = "1";
-      const reviewButton = document.createElement("button");
-      reviewButton.type = "button";
-      reviewButton.className = "dhd-salary-review-trigger";
-      reviewButton.textContent = "مراجعة الكشف";
-      reviewButton.title = "راجع الحساب وPDF قبل تنفيذ التحويل";
-    reviewButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      payButton.click();
-    });
-      payButton.parentElement?.insertBefore(reviewButton, payButton);
+      // The imported React salary page's handler opens the live review dialog.
+      // Do not relabel that same control as "تحويل": doing so makes the
+      // transfer button look executable while it only opens the review.
+      payButton.textContent = "مراجعة كشف الحساب";
+      payButton.title = "راجع الحساب وPDF قبل تنفيذ التحويل";
     });
   }
   function addGeneratedSalaryGuards() {
     document.querySelectorAll("tr button.bg-emerald-600").forEach((button) => {
       const label = button.textContent?.trim() || "";
-      if (label === "تحويل" || label === "دفع" || label.includes("تأكيد") || button.dataset.dhdGeneratedReviewPay === "1") return;
+      if (label.includes("مراجعة") || label.includes("تأكيد") || button.dataset.dhdGeneratedReviewPay === "1") return;
       button.dataset.dhdGeneratedReviewPay = "1";
-      button.textContent = "مراجعة ثم تحويل";
-      button.title = "لا يمكن التحويل قبل مراجعة الكشف";
+      button.textContent = "مراجعة كشف الحساب";
+      button.title = "راجع الحساب وPDF قبل تنفيذ التحويل";
     });
   }
   async function postponeSalary(button) {
@@ -385,9 +388,7 @@
     previous?.remove();
     const confirmButton = Array.from(dialog.querySelectorAll("button"))
       .find((button) => button.textContent?.includes("تأكيد") || button.textContent?.includes("دفع") || button.textContent?.includes("تحويل"));
-    if (confirmButton) {
-      confirmButton.textContent = "تأكيد التحويل";
-    }
+    if (confirmButton) confirmButton.textContent = "تحويل";
     const footer = confirmButton?.parentElement;
     if (!footer) return;
     const summary = latestPreview.summary || latestPreview;

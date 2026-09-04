@@ -724,7 +724,7 @@ function SalarySection() {
     setReceiving(salaryId);
     try {
       const headers = { ...employeeAuthHeaders(), 'Content-Type': 'application/json' };
-      const resp = await fetch(`/employee/salaries/${salaryId}/receive`, {
+      const resp = await fetch(`/api/employee/salaries/${salaryId}/receive`, {
         method: 'POST',
         credentials: 'include',
         headers,
