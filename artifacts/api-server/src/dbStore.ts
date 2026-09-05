@@ -892,31 +892,97 @@ export async function getSalaryPdfData(salaryId: number) {
 // Build the same complete payslip from PostgreSQL without creating or paying a
 // salary record. If an open record exists, live data overrides its old totals.
 export async function getSalaryPreviewData(employeeId: number, month: string, year: number) {
-  const emp = await getEmployeeById(employeeId);
-  if (!emp) return null;
-  const normalizedMonth = String(month).padStart(2, "0");
-  const db = getDb();
-  const rows = await db.select().from(salaries).where(and(
-    eq(salaries.employeeId, employeeId),
-    eq(salaries.year, year),
-  ));
-  const existing = rows
-    .filter((record: any) => String(record.month).padStart(2, "0") === normalizedMonth)
-    .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
-  if (existing?.status === "paid" || existing?.status === "received") {
-    return getSalaryPdfData(Number(existing.id));
+  try {
+    const emp = await getEmployeeById(employeeId);
+    if (!emp) return null;
+    const normalizedMonth = String(month).padStart(2, "0");
+    const db = getDb();
+    let rows: any[] = [];
+    try {
+      rows = await db.select().from(salaries).where(and(
+        eq(salaries.employeeId, employeeId),
+        eq(salaries.year, year),
+      ));
+    } catch {}
+    const existing = rows
+      .filter((record: any) => String(record.month).padStart(2, "0") === normalizedMonth)
+      .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
+    if (existing?.status === "paid" || existing?.status === "received") {
+      try {
+        const paidData = await getSalaryPdfData(Number(existing.id));
+        if (paidData) return paidData;
+      } catch {}
+    }
+    const salary = existing || {
+      id: null,
+      employeeId,
+      month: normalizedMonth,
+      year,
+      baseSalary: emp.baseSalary,
+      status: "pending",
+      paidAt: null,
+      createdAt: null,
+    };
+    return await calculateSalaryPeriodData(salary, emp);
+  } catch (err) {
+    console.error("getSalaryPreviewData error:", err);
+    const emp = await getEmployeeById(employeeId).catch(() => null);
+    if (!emp) return null;
+    const base = Number(emp.baseSalary || 0);
+    return {
+      salary: {
+        id: null,
+        employeeId,
+        month: String(month).padStart(2, "0"),
+        year,
+        baseSalary: String(base),
+        presentDays: 0,
+        absentDays: 0,
+        workedHours: "0",
+        overtimeHours: "0",
+        overtimeBonus: "0",
+        lateDeductions: "0",
+        absenceDeductions: "0",
+        advanceDeductions: "0",
+        violationDeductions: "0",
+        bonuses: "0",
+        otherDeductions: "0",
+        totalDeductions: "0",
+        finalSalary: String(base),
+        status: "pending",
+      },
+      employee: emp,
+      violations: [],
+      advances: [],
+      attendance: [],
+      bonuses: [],
+      leaveRequests: [],
+      vacationRequests: [],
+      companyName: "DHD Livraison",
+      summary: {
+        presentDays: 0,
+        absentDays: 0,
+        workDays: 0,
+        lateDays: 0,
+        lateMinutes: 0,
+        workedHours: 0,
+        overtimeHours: 0,
+        violationTotal: 0,
+        advanceTotal: 0,
+        lateDeduction: 0,
+        absenceDeduction: 0,
+        overtimeBonus: 0,
+        bonusTotal: 0,
+        otherDeductions: 0,
+        totalDeductions: 0,
+        grossSalary: base,
+        baseSalary: base,
+        finalSalary: base,
+        isPaid: false,
+        calculatedAt: new Date().toISOString(),
+      }
+    };
   }
-  const salary = existing || {
-    id: null,
-    employeeId,
-    month: normalizedMonth,
-    year,
-    baseSalary: emp.baseSalary,
-    status: "pending",
-    paidAt: null,
-    createdAt: null,
-  };
-  return calculateSalaryPeriodData(salary, emp);
 }
 
 async function refreshOpenSalaryCalculations(employeeId: number) {
@@ -1653,6 +1719,45 @@ export async function listSalaries(employeeId?: number) {
   try {
     const db = getDb();
     if (db) {
+      if (employeeId) {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+        const existingRecords = await db.select().from(salaries).where(and(
+          eq(salaries.employeeId, employeeId),
+          eq(salaries.year, currentYear)
+        ));
+        const hasCurrentMonth = existingRecords.some((s: any) => String(s.month).padStart(2, '0') === currentMonth);
+        if (!hasCurrentMonth) {
+          try {
+            const preview = await getSalaryPreviewData(employeeId, currentMonth, currentYear);
+            if (preview && preview.summary) {
+              await db.insert(salaries).values({
+                employeeId,
+                month: currentMonth,
+                year: currentYear,
+                baseSalary: String(preview.summary.baseSalary || 0),
+                presentDays: Number(preview.summary.presentDays || 0),
+                absentDays: Number(preview.summary.absentDays || 0),
+                workedHours: String(Number(preview.summary.workedHours || 0)),
+                overtimeHours: String(Number(preview.summary.overtimeHours || 0)),
+                overtimeBonus: String(Number(preview.summary.overtimeBonus || 0)),
+                lateDeductions: String(Number(preview.summary.lateDeduction || 0)),
+                advanceDeductions: String(Number(preview.summary.advanceTotal || 0)),
+                violationDeductions: String(Number(preview.summary.violationTotal || 0)),
+                bonuses: String(Number(preview.summary.bonusTotal || 0)),
+                otherDeductions: String(Number(preview.summary.absenceDeduction || 0)),
+                finalSalary: String(Number(preview.summary.finalSalary || 0)),
+                status: 'pending',
+                createdAt: new Date(),
+              });
+            }
+          } catch (genErr) {
+            console.warn("Auto-generate current month salary error:", genErr);
+          }
+        }
+      }
+
       const all = await db.select().from(salaries);
       let list = all;
       if (employeeId) {

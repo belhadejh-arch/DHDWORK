@@ -1658,17 +1658,34 @@ async function getEmployeePayslip(req: express.Request, res: express.Response) {
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
   const list = await listSalaries(ctx.employee.id);
   const requestedValue = String(req.params.month);
-  const payslip = (list as any[]).find((salary: any) =>
+  let payslip = (list as any[]).find((salary: any) =>
     String(salary.id) === requestedValue ||
     String(salary.month) === requestedValue,
   );
-  if (!payslip) return res.status(404).json({ message: 'لم يتم العثور على كشف الراتب' });
-  const salaryId = Number(payslip.id);
-  const token = issuePdfToken(salaryId);
-  const data = toPayslipPayload(
-    await getSalaryPdfData(salaryId),
-    `/api/employee/salaries/${salaryId}/pdf?t=${token}`,
-  );
+
+  let data: any = null;
+  if (payslip) {
+    const salaryId = Number(payslip.id);
+    const token = issuePdfToken(salaryId);
+    data = toPayslipPayload(
+      await getSalaryPdfData(salaryId),
+      `/api/employee/salaries/${salaryId}/pdf?t=${token}`,
+    );
+  } else {
+    const now = new Date();
+    const month = /^(0[1-9]|1[0-2])$/.test(requestedValue) ? requestedValue : String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const preview = await getSalaryPreviewData(Number(ctx.employee.id), month, year);
+    if (preview) {
+      const salaryId = preview.salary?.id != null ? Number(preview.salary.id) : 0;
+      const token = salaryId ? issuePdfToken(salaryId) : issuePreviewPdfToken(Number(ctx.employee.id), month, year);
+      data = toPayslipPayload(
+        preview,
+        salaryId ? `/api/employee/salaries/${salaryId}/pdf?t=${token}` : `/api/salaries/preview/pdf?employeeId=${ctx.employee.id}&month=${month}&year=${year}&t=${token}`
+      );
+    }
+  }
+
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
 }
@@ -1680,9 +1697,13 @@ async function getEmployeePayslipPdf(req: express.Request, res: express.Response
   if (!tokenOk) {
     const ctx = await getAuthContext(req);
     if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-    const data = await getSalaryPdfData(salaryId);
+    let data = await getSalaryPdfData(salaryId).catch(() => null);
+    if (!data) {
+      const now = new Date();
+      data = await getSalaryPreviewData(Number(ctx.employee.id), String(now.getMonth() + 1).padStart(2, '0'), now.getFullYear());
+    }
     if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
-    if (Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
+    if (data.salary && Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
       return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
     }
     return sendPayslipPdf(res, data, req.query.download === '1');
