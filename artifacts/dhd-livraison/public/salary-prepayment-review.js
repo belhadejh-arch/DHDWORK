@@ -137,28 +137,40 @@
       button.textContent = oldText;
     }
   }
+  function addReviewButtonBeforePayment(payButton) {
+    if (payButton.dataset.dhdReviewButtonAdded === "1") return;
+    const row = payButton.closest("tr");
+    const container = payButton.parentElement;
+    if (!row || !container) return;
+
+    const reviewButton = document.createElement("button");
+    reviewButton.type = "button";
+    reviewButton.className = "dhd-salary-review-trigger";
+    reviewButton.textContent = "مراجعة كشف الحساب";
+    reviewButton.title = "راجع الحساب وPDF قبل تنفيذ الدفع";
+    reviewButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void showGeneratedSalaryReview(payButton);
+    });
+    container.insertBefore(reviewButton, payButton);
+    payButton.dataset.dhdReviewButtonAdded = "1";
+  }
+
   function addStandaloneReviewButtons() {
     document.querySelectorAll("button").forEach((payButton) => {
       const label = payButton.textContent?.trim() || "";
       if (label !== "تحويل" && label !== "دفع") return;
-      if (payButton.dataset.dhdReviewBound === "1") return;
-      const row = payButton.closest("tr");
-      if (!row) return;
-      payButton.dataset.dhdReviewBound = "1";
-      // The imported React salary page's handler opens the live review dialog.
-      // Do not relabel that same control as "تحويل": doing so makes the
-      // transfer button look executable while it only opens the review.
-      payButton.textContent = "مراجعة كشف الحساب";
-      payButton.title = "راجع الحساب وPDF قبل تنفيذ التحويل";
+      // Keep the imported React handler and label intact. The review action
+      // is a separate button so payment remains available after inspection.
+      addReviewButtonBeforePayment(payButton);
     });
   }
   function addGeneratedSalaryGuards() {
     document.querySelectorAll("tr button.bg-emerald-600").forEach((button) => {
       const label = button.textContent?.trim() || "";
-      if (label.includes("مراجعة") || label.includes("تأكيد") || button.dataset.dhdGeneratedReviewPay === "1") return;
-      button.dataset.dhdGeneratedReviewPay = "1";
-      button.textContent = "مراجعة كشف الحساب";
-      button.title = "راجع الحساب وPDF قبل تنفيذ التحويل";
+      if (label.includes("مراجعة") || label.includes("تأكيد")) return;
+      addReviewButtonBeforePayment(button);
     });
   }
   async function postponeSalary(button) {

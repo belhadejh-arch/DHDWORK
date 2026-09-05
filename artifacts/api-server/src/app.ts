@@ -1098,9 +1098,14 @@ apiRouter.get('/salaries/preview', async (req, res) => {
   if (!/^(0[1-9]|1[0-2])$/.test(month) || !Number.isInteger(year) || year < 2000 || year > 2200) {
     return res.status(400).json({ message: 'فترة الراتب غير صالحة' });
   }
-  const preview = await buildSalaryPreview(employeeId, month, year);
-  if (!preview) return res.status(404).json({ message: 'الموظف غير موجود' });
-  return res.json(preview);
+  try {
+    const preview = await buildSalaryPreview(employeeId, month, year);
+    if (!preview) return res.status(404).json({ message: 'الموظف غير موجود' });
+    return res.json(preview);
+  } catch (error) {
+    console.error('salary preview failed:', error);
+    return res.status(500).json({ message: 'تعذر قراءة بيانات الراتب من قاعدة البيانات' });
+  }
 });
 
 apiRouter.get('/salaries/preview/pdf', async (req, res) => {
@@ -1173,19 +1178,28 @@ apiRouter.get('/salaries/:id/payslip', async (req, res) => {
 
 async function paySalary(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const s = await updateSalaryStatus(Number(req.params.id), 'paid');
-  if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
-  return res.json({
-    ...s,
-    ok: true,
-    paymentRecord: {
-      salaryId: Number(s.id),
-      employeeId: Number(s.employeeId),
-      amount: Number(s.finalSalary || 0),
-      paidAt: s.paidAt,
-      status: s.status,
-    },
-  });
+  const salaryId = Number(req.params.id);
+  if (!Number.isInteger(salaryId) || salaryId <= 0) {
+    return res.status(400).json({ message: 'معرف الراتب غير صالح' });
+  }
+  try {
+    const s = await updateSalaryStatus(salaryId, 'paid');
+    if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
+    return res.json({
+      ...s,
+      ok: true,
+      paymentRecord: {
+        salaryId: Number(s.id),
+        employeeId: Number(s.employeeId),
+        amount: Number(s.finalSalary || 0),
+        paidAt: s.paidAt,
+        status: s.status,
+      },
+    });
+  } catch (error) {
+    console.error('salary payment failed:', error);
+    return res.status(500).json({ message: 'تعذر تنفيذ دفع الراتب من قاعدة البيانات' });
+  }
 }
 
 apiRouter.post('/salaries/:id/pay', paySalary);
@@ -1193,22 +1207,40 @@ apiRouter.patch('/salaries/:id/pay', paySalary);
 
 async function postponeSalary(req: express.Request, res: express.Response) {
   if (!await requireAdmin(req, res)) return;
-  const current = await getSalaryById(Number(req.params.id));
-  if (!current) return res.status(404).json({ message: 'الراتب غير موجود' });
-  if (current.status === 'paid' || current.status === 'received') {
-    return res.status(409).json({ message: 'لا يمكن تعديل راتب تم دفعه' });
+  const salaryId = Number(req.params.id);
+  if (!Number.isInteger(salaryId) || salaryId <= 0) {
+    return res.status(400).json({ message: 'معرف الراتب غير صالح' });
   }
-  let postponedUntil = req.body?.postponedUntil;
-  if (!postponedUntil && req.body?.days != null) {
-    const days = Number(req.body.days);
-    if (!Number.isInteger(days) || days < 1 || days > 31) {
-      return res.status(400).json({ message: 'مدة التأجيل يجب أن تكون بين 1 و31 يومًا' });
+  try {
+    const current = await getSalaryById(salaryId);
+    if (!current) return res.status(404).json({ message: 'الراتب غير موجود' });
+    if (current.status === 'paid' || current.status === 'received') {
+      return res.status(409).json({ message: 'لا يمكن تعديل راتب تم دفعه' });
     }
-    postponedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    let postponedUntil = req.body?.postponedUntil;
+    if (!postponedUntil && req.body?.days != null) {
+      const days = Number(req.body.days);
+      if (!Number.isInteger(days) || days < 1 || days > 31) {
+        return res.status(400).json({ message: 'مدة التأجيل يجب أن تكون بين 1 و31 يومًا' });
+      }
+      postponedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    }
+    if (!postponedUntil) {
+      return res.status(400).json({ message: 'يجب تحديد مدة أو تاريخ التأجيل' });
+    }
+    const parsedPostponedUntil = new Date(postponedUntil);
+    if (Number.isNaN(parsedPostponedUntil.getTime())) {
+      return res.status(400).json({ message: 'تاريخ التأجيل غير صالح' });
+    }
+    const s = await updateSalaryStatus(salaryId, 'postponed', {
+      postponedUntil: parsedPostponedUntil.toISOString(),
+    });
+    if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
+    return res.json({ ...s, ok: true });
+  } catch (error) {
+    console.error('salary postponement failed:', error);
+    return res.status(500).json({ message: 'تعذر تأجيل الراتب من قاعدة البيانات' });
   }
-  const s = await updateSalaryStatus(Number(req.params.id), 'postponed', { postponedUntil });
-  if (!s) return res.status(404).json({ message: 'الراتب غير موجود' });
-  return res.json({ ...s, ok: true });
 }
 
 apiRouter.post('/salaries/:id/postpone', postponeSalary);
