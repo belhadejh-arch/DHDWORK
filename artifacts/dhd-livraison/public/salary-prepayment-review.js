@@ -414,6 +414,15 @@
       pdfButton.className = "dhd-salary-preview-pdf";
       pdfButton.textContent = "فتح PDF قبل التحويل";
       pdfButton.addEventListener("click", () => openPreviewPdf(pdfButton));
+      const postponeButton = document.createElement("button");
+      postponeButton.type = "button";
+      postponeButton.className = "dhd-salary-review-trigger";
+      postponeButton.textContent = "تأجيل الدفع";
+      postponeButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void postponeSalary(payButton);
+      });
       const confirmButton = document.createElement("button");
       confirmButton.type = "button";
       confirmButton.className = "dhd-generated-review-confirm";
@@ -442,7 +451,7 @@
           confirmButton.textContent = "تأكيد التحويل وإشعار الموظف";
         }
       });
-      actions.append(pdfButton, confirmButton);
+      actions.append(pdfButton, postponeButton, confirmButton);
     } catch (error) {
       console.error("[salary-review] generated salary review failed", error);
       const errorBody = overlay.querySelector(".dhd-generated-review-body");
@@ -653,7 +662,7 @@
     .dhd-review-detail-table td { color: #334155; }
     .dhd-review-detail-table td:nth-last-child(1) { font-weight: 700; white-space: nowrap; }
     .dhd-review-detail-table .empty { color: #94a3b8; text-align: center; }
-    .dhd-generated-review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; }
+    .dhd-generated-review-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: .65rem; }
     .dhd-generated-review-confirm {
       min-height: 2.35rem;
       border: 0;
@@ -681,6 +690,7 @@
   });
   document.addEventListener("click", (event) => {
     const clickedButton = event.target.closest?.("button");
+    if (clickedButton?.closest("[data-dhd-generated-review-overlay]")) return;
     const label = clickedButton?.textContent?.trim() ||
       clickedButton?.getAttribute("aria-label")?.trim() ||
       clickedButton?.getAttribute("title")?.trim() ||

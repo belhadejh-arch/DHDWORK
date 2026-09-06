@@ -20,3 +20,9 @@ Salary preview reads must fail explicitly when a required PostgreSQL table or qu
 **Why:** A fallback preview can look successful while silently disconnecting the review from the employee's real attendance, deductions, and salary records.
 
 **How to apply:** Keep employee/salary/detail reads strict on the review path and let the API error path report the failure instead of synthesizing a payslip.
+
+Employee salary listing is read-only and must not auto-create the current month's salary row.
+
+**Why:** Opening the employee account should never mutate payroll data; creation belongs to an explicit payroll operation such as payment or postponement.
+
+**How to apply:** Resolve employee payslips through the shared PostgreSQL preview calculation and surface database failures instead of returning in-memory fallback data.

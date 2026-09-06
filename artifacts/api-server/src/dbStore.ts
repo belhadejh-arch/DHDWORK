@@ -1640,45 +1640,6 @@ export async function listSalaries(employeeId?: number) {
   try {
     const db = getDb();
     if (db) {
-      if (employeeId) {
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
-        const existingRecords = await db.select().from(salaries).where(and(
-          eq(salaries.employeeId, employeeId),
-          eq(salaries.year, currentYear)
-        ));
-        const hasCurrentMonth = existingRecords.some((s: any) => String(s.month).padStart(2, '0') === currentMonth);
-        if (!hasCurrentMonth) {
-          try {
-            const preview = await getSalaryPreviewData(employeeId, currentMonth, currentYear);
-            if (preview && preview.summary) {
-              await db.insert(salaries).values({
-                employeeId,
-                month: currentMonth,
-                year: currentYear,
-                baseSalary: String(preview.summary.baseSalary || 0),
-                presentDays: Number(preview.summary.presentDays || 0),
-                absentDays: Number(preview.summary.absentDays || 0),
-                workedHours: String(Number(preview.summary.workedHours || 0)),
-                overtimeHours: String(Number(preview.summary.overtimeHours || 0)),
-                overtimeBonus: String(Number(preview.summary.overtimeBonus || 0)),
-                lateDeductions: String(Number(preview.summary.lateDeduction || 0)),
-                advanceDeductions: String(Number(preview.summary.advanceTotal || 0)),
-                violationDeductions: String(Number(preview.summary.violationTotal || 0)),
-                bonuses: String(Number(preview.summary.bonusTotal || 0)),
-                otherDeductions: String(Number(preview.summary.absenceDeduction || 0)),
-                finalSalary: String(Number(preview.summary.finalSalary || 0)),
-                status: 'pending',
-                createdAt: new Date(),
-              });
-            }
-          } catch (genErr) {
-            console.warn("Auto-generate current month salary error:", genErr);
-          }
-        }
-      }
-
       const all = await db.select().from(salaries);
       let list = all;
       if (employeeId) {
@@ -1687,6 +1648,9 @@ export async function listSalaries(employeeId?: number) {
       return list.map(normalizeSalary);
     }
   } catch (err) {
+    // Employee salary reads must never silently fall back to demo/in-memory
+    // data when PostgreSQL is unavailable.
+    if (employeeId) throw err;
     console.warn("DB listSalaries failed, using fallback:", err);
   }
 

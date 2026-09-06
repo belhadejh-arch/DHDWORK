@@ -1656,38 +1656,46 @@ apiRouter.get('/employee/salaries', async (req, res) => {
 async function getEmployeePayslip(req: express.Request, res: express.Response) {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  const list = await listSalaries(ctx.employee.id);
-  const requestedValue = String(req.params.month);
-  let payslip = (list as any[]).find((salary: any) =>
-    String(salary.id) === requestedValue ||
-    String(salary.month) === requestedValue,
-  );
+  try {
+    const employeeId = Number(ctx.employee.id);
+    const requestedValue = String(req.params.month || '').trim();
+    const requestedId = /^\d+$/.test(requestedValue) ? Number(requestedValue) : null;
+    const persistedSalary = requestedId ? await getSalaryById(requestedId) : null;
 
-  let data: any = null;
-  if (payslip) {
-    const salaryId = Number(payslip.id);
-    const token = issuePdfToken(salaryId);
-    data = toPayslipPayload(
-      await getSalaryPdfData(salaryId),
-      `/api/employee/salaries/${salaryId}/pdf?t=${token}`,
-    );
-  } else {
-    const now = new Date();
-    const month = /^(0[1-9]|1[0-2])$/.test(requestedValue) ? requestedValue : String(now.getMonth() + 1).padStart(2, '0');
-    const year = now.getFullYear();
-    const preview = await getSalaryPreviewData(Number(ctx.employee.id), month, year);
-    if (preview) {
-      const salaryId = preview.salary?.id != null ? Number(preview.salary.id) : 0;
-      const token = salaryId ? issuePdfToken(salaryId) : issuePreviewPdfToken(Number(ctx.employee.id), month, year);
-      data = toPayslipPayload(
-        preview,
-        salaryId ? `/api/employee/salaries/${salaryId}/pdf?t=${token}` : `/api/salaries/preview/pdf?employeeId=${ctx.employee.id}&month=${month}&year=${year}&t=${token}`
-      );
+    // ADMIN preview and EMPLOYEE payslip must use the same live PostgreSQL
+    // calculation. An employee may only resolve a persisted salary belonging
+    // to their own account; a missing numeric id is never silently replaced
+    // with the current month.
+    if (requestedId && (!persistedSalary || Number(persistedSalary.employeeId) !== employeeId)) {
+      return res.status(404).json({ message: 'كشف الراتب غير موجود' });
     }
-  }
 
-  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
-  return res.json(data);
+    const now = new Date();
+    const month = persistedSalary
+      ? String(persistedSalary.month).padStart(2, '0')
+      : /^(0[1-9]|1[0-2])$/.test(requestedValue)
+        ? requestedValue
+        : String(now.getMonth() + 1).padStart(2, '0');
+    const year = persistedSalary ? Number(persistedSalary.year) : now.getFullYear();
+    const preview = await getSalaryPreviewData(employeeId, month, year);
+    if (!preview) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+
+    const salaryId = preview.salary?.id != null ? Number(preview.salary.id) : 0;
+    const token = salaryId
+      ? issuePdfToken(salaryId)
+      : issuePreviewPdfToken(employeeId, month, year);
+    const data = toPayslipPayload(
+      preview,
+      salaryId
+        ? `/api/employee/salaries/${salaryId}/pdf?t=${token}`
+        : `/api/salaries/preview/pdf?employeeId=${employeeId}&month=${month}&year=${year}&t=${token}`,
+    );
+    if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+    return res.json(data);
+  } catch (error) {
+    console.error('employee payslip failed:', error);
+    return res.status(500).json({ message: 'تعذر قراءة كشف الراتب من قاعدة البيانات' });
+  }
 }
 
 async function getEmployeePayslipPdf(req: express.Request, res: express.Response) {
