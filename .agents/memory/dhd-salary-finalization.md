@@ -14,3 +14,9 @@ Legacy enhancement scripts must not intercept the React salary page's native rev
 **Why:** A duplicate document-level click handler prevented the native salary modal from receiving its event and produced a misleading review-load failure.
 
 **How to apply:** Let the salary component own preview and payment state, and keep legacy listeners limited to controls that the component does not implement.
+
+Salary preview reads must fail explicitly when a required PostgreSQL table or query is unavailable; never replace a failed read with zero-valued preview data.
+
+**Why:** A fallback preview can look successful while silently disconnecting the review from the employee's real attendance, deductions, and salary records.
+
+**How to apply:** Keep employee/salary/detail reads strict on the review path and let the API error path report the failure instead of synthesizing a payslip.

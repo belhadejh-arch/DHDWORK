@@ -728,27 +728,13 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
   let allLeaves: any[] = [];
   let allVacations: any[] = [];
   let settingsRows: any[] = [];
-  try {
-    allViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId)));
-  } catch {}
-  try {
-    allAdvances = await db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId)));
-  } catch {}
-  try {
-    allAttendance = await db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)));
-  } catch {}
-  try {
-    allBonuses = await db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)));
-  } catch {}
-  try {
-    allLeaves = await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, Number(salary.employeeId)));
-  } catch {}
-  try {
-    allVacations = await db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, Number(salary.employeeId)));
-  } catch {}
-  try {
-    settingsRows = await db.select().from(settings);
-  } catch {}
+  allViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId)));
+  allAdvances = await db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId)));
+  allAttendance = await db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)));
+  allBonuses = await db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)));
+  allLeaves = await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, Number(salary.employeeId)));
+  allVacations = await db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, Number(salary.employeeId)));
+  settingsRows = await db.select().from(settings);
   const settingsRecord = settingsRows[0] || memoryStore.settings;
 
   const monthPrefix = `${salary.year}-${String(salary.month).padStart(2, "0")}`;
@@ -892,97 +878,32 @@ export async function getSalaryPdfData(salaryId: number) {
 // Build the same complete payslip from PostgreSQL without creating or paying a
 // salary record. If an open record exists, live data overrides its old totals.
 export async function getSalaryPreviewData(employeeId: number, month: string, year: number) {
-  try {
-    const emp = await getEmployeeById(employeeId);
-    if (!emp) return null;
-    const normalizedMonth = String(month).padStart(2, "0");
-    const db = getDb();
-    let rows: any[] = [];
-    try {
-      rows = await db.select().from(salaries).where(and(
-        eq(salaries.employeeId, employeeId),
-        eq(salaries.year, year),
-      ));
-    } catch {}
-    const existing = rows
-      .filter((record: any) => String(record.month).padStart(2, "0") === normalizedMonth)
-      .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
-    if (existing?.status === "paid" || existing?.status === "received") {
-      try {
-        const paidData = await getSalaryPdfData(Number(existing.id));
-        if (paidData) return paidData;
-      } catch {}
-    }
-    const salary = existing || {
-      id: null,
-      employeeId,
-      month: normalizedMonth,
-      year,
-      baseSalary: emp.baseSalary,
-      status: "pending",
-      paidAt: null,
-      createdAt: null,
-    };
-    return await calculateSalaryPeriodData(salary, emp);
-  } catch (err) {
-    console.error("getSalaryPreviewData error:", err);
-    const emp = await getEmployeeById(employeeId).catch(() => null);
-    if (!emp) return null;
-    const base = Number(emp.baseSalary || 0);
-    return {
-      salary: {
-        id: null,
-        employeeId,
-        month: String(month).padStart(2, "0"),
-        year,
-        baseSalary: String(base),
-        presentDays: 0,
-        absentDays: 0,
-        workedHours: "0",
-        overtimeHours: "0",
-        overtimeBonus: "0",
-        lateDeductions: "0",
-        absenceDeductions: "0",
-        advanceDeductions: "0",
-        violationDeductions: "0",
-        bonuses: "0",
-        otherDeductions: "0",
-        totalDeductions: "0",
-        finalSalary: String(base),
-        status: "pending",
-      },
-      employee: emp,
-      violations: [],
-      advances: [],
-      attendance: [],
-      bonuses: [],
-      leaveRequests: [],
-      vacationRequests: [],
-      companyName: "DHD Livraison",
-      summary: {
-        presentDays: 0,
-        absentDays: 0,
-        workDays: 0,
-        lateDays: 0,
-        lateMinutes: 0,
-        workedHours: 0,
-        overtimeHours: 0,
-        violationTotal: 0,
-        advanceTotal: 0,
-        lateDeduction: 0,
-        absenceDeduction: 0,
-        overtimeBonus: 0,
-        bonusTotal: 0,
-        otherDeductions: 0,
-        totalDeductions: 0,
-        grossSalary: base,
-        baseSalary: base,
-        finalSalary: base,
-        isPaid: false,
-        calculatedAt: new Date().toISOString(),
-      }
-    };
+  const emp = await getEmployeeById(employeeId);
+  if (!emp) return null;
+  const normalizedMonth = String(month).padStart(2, "0");
+  const db = getDb();
+  const rows = await db.select().from(salaries).where(and(
+    eq(salaries.employeeId, employeeId),
+    eq(salaries.year, year),
+  ));
+  const existing = rows
+    .filter((record: any) => String(record.month).padStart(2, "0") === normalizedMonth)
+    .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
+  if (existing?.status === "paid" || existing?.status === "received") {
+    const paidData = await getSalaryPdfData(Number(existing.id));
+    if (paidData) return paidData;
   }
+  const salary = existing || {
+    id: null,
+    employeeId,
+    month: normalizedMonth,
+    year,
+    baseSalary: emp.baseSalary,
+    status: "pending",
+    paidAt: null,
+    createdAt: null,
+  };
+  return calculateSalaryPeriodData(salary, emp);
 }
 
 async function refreshOpenSalaryCalculations(employeeId: number) {
