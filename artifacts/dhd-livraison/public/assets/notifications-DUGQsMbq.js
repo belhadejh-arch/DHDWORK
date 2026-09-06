@@ -1,6 +1,7 @@
 import{r as React,j as jsx}from"./vendor-react-C5hoFxUC.js";
 
 const apiHeaders=()=>{const token=window.localStorage.getItem("dhd_admin_token");return token?{Authorization:`Bearer ${token}`}:{}};
+const notifyChanged=()=>window.dispatchEvent(new Event("dhd-notifications-changed"));
 
 function formatDate(value){
   if(!value)return"الآن";
@@ -14,13 +15,15 @@ function Notifications(){
   const[loading,setLoading]=React.useState(true);
   const[busy,setBusy]=React.useState(null);
   const load=React.useCallback(async()=>{
+    const controller=new AbortController();
+    const timeout=window.setTimeout(()=>controller.abort(),15000);
     try{
-      const response=await fetch("/api/notifications",{credentials:"include",headers:{Accept:"application/json",...apiHeaders()}});
+      const response=await fetch("/api/notifications",{credentials:"include",headers:{Accept:"application/json",...apiHeaders()},signal:controller.signal});
       if(response.ok){
         const data=await response.json();
         setList(Array.isArray(data)?data:[]);
       }
-    }finally{setLoading(false)}
+    }catch{}finally{window.clearTimeout(timeout);setLoading(false)}
   },[]);
   React.useEffect(()=>{
     void load();
@@ -36,6 +39,7 @@ function Notifications(){
       if(!response.ok)return false;
       if(action==="delete")setList(items=>items.filter(item=>item.id!==id));
       else setList(items=>items.map(item=>item.id===id?{...item,isRead:true}:item));
+      notifyChanged();
       return true;
     }finally{setBusy(null)}
   };
@@ -44,7 +48,7 @@ function Notifications(){
     setBusy("all");
     try{
       const response=await fetch("/api/notifications/read-all",{method:"POST",credentials:"include",headers:apiHeaders()});
-      if(response.ok)setList(items=>items.map(item=>({...item,isRead:true})));
+       if(response.ok){setList(items=>items.map(item=>({...item,isRead:true})));notifyChanged();}
     }finally{setBusy(null)}
   };
   const deleteAll=async()=>{
@@ -52,7 +56,7 @@ function Notifications(){
     setBusy("all-delete");
     try{
       const response=await fetch("/api/notifications",{method:"DELETE",credentials:"include",headers:apiHeaders()});
-      if(response.ok)setList([]);
+       if(response.ok){setList([]);notifyChanged();}
     }finally{setBusy(null)}
   };
   const open=async(item)=>{

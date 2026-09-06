@@ -656,13 +656,20 @@ function SalarySection() {
   const [receiving, setReceiving] = useState<number | null>(null);
 
   const loadSalaries = useCallback(async () => {
-    const response = await fetch('/api/employee/salaries', {
-      credentials: 'include',
-      headers: employeeAuthHeaders(),
-    });
-    if (!response.ok) throw new Error('تعذر تحميل الرواتب');
-    const data = await response.json();
-    setSalaries(Array.isArray(data) ? data : []);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch('/api/employee/salaries', {
+        credentials: 'include',
+        headers: employeeAuthHeaders(),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('تعذر تحميل الرواتب');
+      const data = await response.json();
+      setSalaries(Array.isArray(data) ? data : []);
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }, []);
 
   useEffect(() => {
@@ -697,9 +704,15 @@ function SalarySection() {
     if (opening !== null) return;
     setOpening(salary.id);
     const previewWindow = window.open('', '_blank');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
       const headers = employeeAuthHeaders();
-      const resp = await fetch(`/api/employee/salaries/${salary.id}/pdf`, { credentials: 'include', headers });
+      const resp = await fetch(`/api/employee/salaries/${salary.id || 0}/pdf`, {
+        credentials: 'include',
+        headers,
+        signal: controller.signal,
+      });
       if (!resp.ok) throw new Error('تعذر تحميل الكشف');
       const contentType = resp.headers.get('content-type') || '';
       if (!contentType.includes('application/pdf')) throw new Error('الاستجابة ليست ملف PDF');
@@ -715,6 +728,7 @@ function SalarySection() {
     } catch {
       if (previewWindow) previewWindow.close();
     } finally {
+      window.clearTimeout(timeout);
       setOpening(null);
     }
   };

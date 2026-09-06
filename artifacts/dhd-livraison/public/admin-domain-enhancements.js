@@ -110,12 +110,46 @@
     return token ? { Authorization: 'Bearer ' + token } : {};
   }
 
+  function findAdminBellCountBadge(bell) {
+    var spans = bell.querySelectorAll('span');
+    for (var index = 0; index < spans.length; index += 1) {
+      if (/^\d+\+?$/.test((spans[index].textContent || '').trim())) return spans[index];
+    }
+    return bell.querySelector('.dhd-admin-bell-count');
+  }
+
+  function getAdminBellUnreadCount() {
+    var bell = document.querySelector('[data-testid="button-notification-bell"]');
+    if (!bell) return 0;
+    var badge = findAdminBellCountBadge(bell);
+    var value = Number.parseInt((badge && badge.textContent || '').replace('+', ''), 10);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function setAdminBellUnreadCount(unread) {
+    var bell = document.querySelector('[data-testid="button-notification-bell"]');
+    if (!bell) return;
+    bell.classList.toggle('dhd-admin-bell-unread', unread > 0);
+    var badge = findAdminBellCountBadge(bell);
+    if (unread > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'dhd-admin-bell-count';
+        bell.appendChild(badge);
+      }
+      badge.textContent = unread > 99 ? '99+' : String(unread);
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
   function openAdminNotification(notification, row) {
     if (!notification || !row || row.dataset.dhdNotificationOpening === 'true') return;
     row.dataset.dhdNotificationOpening = 'true';
     var complete = function () {
       row.classList.remove('dhd-admin-notification-unread');
       row.classList.add('dhd-admin-notification-read');
+      setAdminBellUnreadCount(Math.max(0, getAdminBellUnreadCount() - 1));
       refreshAdminBell();
       window.location.assign(notification.targetPath || '/dashboard');
     };
@@ -241,7 +275,7 @@
           var bell = document.querySelector('[data-testid="button-notification-bell"]');
           if (!bell) return;
           bell.classList.toggle('dhd-admin-bell-unread', unread > 0);
-          var badge = bell.querySelector('.dhd-admin-bell-count');
+           var badge = findAdminBellCountBadge(bell);
           if (unread > 0) {
             if (!badge) {
               badge = document.createElement('span');
@@ -268,6 +302,8 @@
     }, 2000);
     window.addEventListener('beforeunload', function () { window.clearInterval(timer); }, { once: true });
   }
+
+  window.addEventListener('dhd-notifications-changed', refreshAdminBell);
 
   var observer = new MutationObserver(function (mutations) {
     mutations.forEach(function (mutation) {

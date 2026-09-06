@@ -1650,7 +1650,36 @@ apiRouter.get('/employee/salary-balance', async (req, res) => {
 apiRouter.get('/employee/salaries', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  return res.json(await listSalaries(ctx.employee.id));
+  const employeeId = Number(ctx.employee.id);
+  const salaries = await listSalaries(employeeId);
+  const now = new Date();
+  const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+  const currentYear = now.getFullYear();
+  const hasCurrentSalary = salaries.some((salary: any) =>
+    String(salary.month).padStart(2, '0') === currentMonth &&
+    Number(salary.year) === currentYear,
+  );
+
+  // Keep the employee account visible even before payroll creates a persisted
+  // row. This is a live PostgreSQL calculation only; it never inserts or
+  // updates a salary record during a read.
+  if (!hasCurrentSalary) {
+    const preview = await getSalaryPreviewData(employeeId, currentMonth, currentYear);
+    if (preview?.summary) {
+      salaries.push({
+        id: 0,
+        employeeId,
+        month: currentMonth,
+        year: currentYear,
+        baseSalary: Number(preview.summary.baseSalary || 0),
+        finalSalary: Number(preview.summary.finalSalary || 0),
+        status: 'pending',
+        previewOnly: true,
+      });
+    }
+  }
+
+  return res.json(salaries);
 });
 
 async function getEmployeePayslip(req: express.Request, res: express.Response) {
