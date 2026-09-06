@@ -735,7 +735,13 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
   allLeaves = await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, Number(salary.employeeId)));
   allVacations = await db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, Number(salary.employeeId)));
   settingsRows = await db.select().from(settings);
-  const settingsRecord = settingsRows[0] || memoryStore.settings;
+  // Payroll reviews must be calculated from the live PostgreSQL settings.
+  // Falling back to the in-memory demo settings can make a real payslip look
+  // valid while using values that were never configured in the database.
+  const settingsRecord = settingsRows[0];
+  if (!settingsRecord) {
+    throw new Error("إعدادات الرواتب غير موجودة في قاعدة البيانات");
+  }
 
   const monthPrefix = `${salary.year}-${String(salary.month).padStart(2, "0")}`;
   const periodStart = `${monthPrefix}-01`;
@@ -889,21 +895,15 @@ export async function getSalaryPreviewData(employeeId: number, month: string, ye
   const existing = rows
     .filter((record: any) => String(record.month).padStart(2, "0") === normalizedMonth)
     .sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
+  // A preview is a review of a persisted payroll row, not a generated
+  // estimate. Never invent a salary record when the requested period is
+  // missing; callers can then show the explicit empty-period state.
+  if (!existing) return null;
   if (existing?.status === "paid" || existing?.status === "received") {
     const paidData = await getSalaryPdfData(Number(existing.id));
     if (paidData) return paidData;
   }
-  const salary = existing || {
-    id: null,
-    employeeId,
-    month: normalizedMonth,
-    year,
-    baseSalary: emp.baseSalary,
-    status: "pending",
-    paidAt: null,
-    createdAt: null,
-  };
-  return calculateSalaryPeriodData(salary, emp);
+  return calculateSalaryPeriodData(existing, emp);
 }
 
 async function refreshOpenSalaryCalculations(employeeId: number) {

@@ -417,7 +417,7 @@
       const postponeButton = document.createElement("button");
       postponeButton.type = "button";
       postponeButton.className = "dhd-salary-review-trigger";
-      postponeButton.textContent = "تأجيل الدفع";
+      postponeButton.textContent = "تأجيل";
       postponeButton.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -426,7 +426,7 @@
       const confirmButton = document.createElement("button");
       confirmButton.type = "button";
       confirmButton.className = "dhd-generated-review-confirm";
-      confirmButton.textContent = "تأكيد التحويل وإشعار الموظف";
+      confirmButton.textContent = "دفع";
       confirmButton.addEventListener("click", async () => {
         confirmButton.disabled = true;
         confirmButton.textContent = "جارٍ تنفيذ التحويل...";
@@ -448,7 +448,7 @@
           console.error("[salary-review] transfer failed", error);
           notify(error.message || "تعذر تنفيذ التحويل");
           confirmButton.disabled = false;
-          confirmButton.textContent = "تأكيد التحويل وإشعار الموظف";
+          confirmButton.textContent = "دفع";
         }
       });
       actions.append(pdfButton, postponeButton, confirmButton);

@@ -652,6 +652,7 @@ type SalaryRecord = {
 function SalarySection() {
   const [salaries, setSalaries] = useState<SalaryRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState<number | null>(null);
   const [receiving, setReceiving] = useState<number | null>(null);
 
@@ -664,9 +665,13 @@ function SalarySection() {
         headers: employeeAuthHeaders(),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error('تعذر تحميل الرواتب');
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || 'تعذر تحميل الرواتب من قاعدة البيانات');
+      }
       const data = await response.json();
       setSalaries(Array.isArray(data) ? data : []);
+      setError(null);
     } finally {
       window.clearTimeout(timeout);
     }
@@ -675,7 +680,12 @@ function SalarySection() {
   useEffect(() => {
     let cancelled = false;
     void loadSalaries()
-      .catch(() => { if (!cancelled) setSalaries([]); })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setSalaries([]);
+          setError(reason instanceof Error ? reason.message : 'تعذر تحميل الرواتب من قاعدة البيانات');
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     const stream = typeof EventSource === 'undefined'
       ? null
@@ -783,8 +793,10 @@ function SalarySection() {
       </div>
       {loading ? (
         <p className="dhd-empty-state">جارٍ تحميل الرواتب...</p>
+      ) : error ? (
+        <p className="dhd-empty-state">{error}</p>
       ) : salaries.length === 0 ? (
-        <p className="dhd-empty-state">لا توجد سجلات راتب بعد.</p>
+        <p className="dhd-empty-state">لا يوجد كشف راتب لهذه الفترة</p>
       ) : (
         <div className="dhd-record-list">
           {salaries.slice(0, 12).map((salary) => (
