@@ -66,7 +66,9 @@ type AttendanceRecord = {
   checkOutTime?: string | null;
   workedMinutes?: number | null;
   lateMinutes?: number | null;
+  lateDeduction?: number | string | null;
   isAbsent?: boolean | null;
+  notes?: string | null;
 };
 
 type ViolationRecord = {
@@ -647,13 +649,272 @@ type SalaryRecord = {
   finalSalary?: string | number | null;
   status?: string | null;
   receivedAt?: string | null;
+  lateDeduction?: number | string | null;
 };
 
+type SalaryDetailsPayload = {
+  salary: SalaryRecord & {
+    absenceDeductions?: string | number | null;
+    otherDeductions?: string | number | null;
+  };
+  employee?: Employee | null;
+  summary: {
+    baseSalary?: number | string | null;
+    presentDays?: number | null;
+    absentDays?: number | null;
+    workedHours?: number | null;
+    lateDays?: number | null;
+    lateMinutes?: number | null;
+    lateDeduction?: number | null;
+    absenceDeduction?: number | null;
+    advanceTotal?: number | null;
+    violationTotal?: number | null;
+    overtimeBonus?: number | null;
+    bonusTotal?: number | null;
+    otherDeductions?: number | null;
+    totalDeductions?: number | null;
+    finalSalary?: number | null;
+  };
+  attendanceRecords?: AttendanceRecord[];
+  advances?: Array<{ id: number; amount?: number | string | null; reason?: string | null; requestedAt?: string | null; createdAt?: string | null }>;
+  violations?: ViolationRecord[];
+  bonuses?: Array<{ id: number; amount?: number | string | null; reason?: string | null; notes?: string | null; date?: string | null; createdAt?: string | null }>;
+};
+
+function salaryAmount(value: unknown) {
+  return `${Number(value || 0).toLocaleString('ar-DZ')} دج`;
+}
+
+function salaryMonthLabel(month?: string | null, year?: number | null) {
+  const map: Record<string, string> = {
+    '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل',
+    '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس',
+    '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر',
+  };
+  return `${map[String(month || '').padStart(2, '0')] || month || '—'} ${year || ''}`.trim();
+}
+
+function salaryDate(value?: string | null) {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? String(value).slice(0, 10)
+    : new Intl.DateTimeFormat('ar-DZ', { year: 'numeric', month: 'long', day: 'numeric' }).format(parsed);
+}
+
+function SalaryDetailsTable({
+  title,
+  headers,
+  rows,
+  empty,
+}: {
+  title: string;
+  headers: string[];
+  rows: Array<Array<ReactNode>>;
+  empty: string;
+}) {
+  return (
+    <section className="dhd-salary-details-section">
+      <h2>{title}</h2>
+      <div className="dhd-salary-details-table-wrap">
+        <table className="dhd-salary-details-table">
+          <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={headers.length} className="dhd-empty-state">{empty}</td></tr>
+            ) : rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
+  const [, navigate] = useLocation();
+  const { employee, isChecking, logout } = useEmployeeSession();
+  const [details, setDetails] = useState<SalaryDetailsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!employee || !params.id) return;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    fetch(`/api/salaries/${encodeURIComponent(params.id)}/details`, {
+      credentials: 'include',
+      headers: employeeAuthHeaders(),
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || 'تعذر تحميل تفاصيل كشف الراتب');
+        return body as SalaryDetailsPayload;
+      })
+      .then((body) => {
+        if (!cancelled) setDetails(body);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'تعذر تحميل تفاصيل كشف الراتب');
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [employee?.id, params.id]);
+
+  if (!employee && isChecking) return <LoadingScreen />;
+  if (!employee) return <Redirect to="/portal/login" />;
+
+  const salary = details?.salary;
+  const summary = details?.summary;
+  const attendance = details?.attendanceRecords || [];
+  const absences = attendance.filter((record) => record.isAbsent);
+  const lateAttendance = attendance.filter((record) => Number(record.lateMinutes || 0) > 0);
+  const fullName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 'الموظف';
+
+  return (
+    <main className="dhd-portal-page">
+      <header className="dhd-portal-header">
+        <Brand />
+        <div className="dhd-portal-actions">
+          <NotificationPanel />
+          <button className="dhd-logout-button" type="button" onClick={logout}><LogOut size={17} /> خروج</button>
+        </div>
+      </header>
+      <div className="dhd-portal-content">
+        <button className="dhd-back-link" type="button" onClick={() => navigate('/portal')}>
+          ← العودة إلى الحساب
+        </button>
+        <section className="dhd-salary-details-hero">
+          <div>
+            <p className="dhd-eyebrow">الرواتب والكشوفات</p>
+            <h1>تفاصيل كشف الراتب</h1>
+            <p>{fullName}{salary ? ` · ${salaryMonthLabel(salary.month, salary.year)}` : ''}</p>
+          </div>
+          <FileText size={32} />
+        </section>
+
+        {loading ? (
+          <section className="dhd-section-card"><p className="dhd-empty-state">جارٍ تحميل بيانات كشف الراتب من PostgreSQL...</p></section>
+        ) : error ? (
+          <section className="dhd-section-card"><p className="dhd-empty-state dhd-error-state">{error}</p></section>
+        ) : salary && summary ? (
+          <>
+            <section className="dhd-section-card dhd-salary-details-summary">
+              <div className="dhd-salary-details-meta">
+                <InfoCard icon={<UserRound />} label="اسم الموظف" value={`${details?.employee?.firstName || employee.firstName || ''} ${details?.employee?.lastName || employee.lastName || ''}`.trim()} />
+                <InfoCard icon={<CalendarDays />} label="الشهر والفترة" value={salaryMonthLabel(salary.month, salary.year)} />
+                <InfoCard icon={<WalletCards />} label="الراتب الأساسي" value={salaryAmount(summary.baseSalary)} />
+                <InfoCard icon={<WalletCards />} label="حالة الكشف" value={salary.status === 'received' ? 'تم الاستلام' : salary.status === 'paid' ? 'مدفوع' : salary.status === 'postponed' ? 'مؤجل' : 'قيد المراجعة'} />
+              </div>
+              <div className="dhd-salary-details-totals">
+                <div><span>إجمالي الخصومات</span><strong className="is-negative">{salaryAmount(summary.totalDeductions)}</strong></div>
+                <div><span>إجمالي الإضافات</span><strong className="is-positive">{salaryAmount(Number(summary.overtimeBonus || 0) + Number(summary.bonusTotal || 0))}</strong></div>
+                <div className="is-final"><span>صافي الراتب النهائي</span><strong>{salaryAmount(summary.finalSalary)}</strong></div>
+              </div>
+            </section>
+
+            <SalaryDetailsTable
+              title="كل أيام الحضور وساعات العمل والتأخير"
+              headers={['التاريخ', 'الدخول', 'الخروج', 'ساعات العمل', 'التأخير', 'خصم التأخير', 'الحالة']}
+              rows={attendance.map((record) => [
+                salaryDate(record.date),
+                <span dir="ltr">{record.checkInTime || '—'}</span>,
+                <span dir="ltr">{record.checkOutTime || '—'}</span>,
+                `${(Number(record.workedMinutes || 0) / 60).toFixed(2)} ساعة`,
+                Number(record.lateMinutes || 0) > 0 ? `${record.lateMinutes} دقيقة` : '—',
+                Number(record.lateDeduction || 0) > 0 ? salaryAmount(record.lateDeduction) : '—',
+                record.isAbsent ? 'غائب' : 'حاضر',
+              ])}
+              empty="لا توجد أيام حضور مسجلة لهذه الفترة"
+            />
+
+            <SalaryDetailsTable
+              title={`أيام الغياب (${absences.length} يوم)`}
+              headers={['التاريخ', 'الملاحظة', 'خصم الغياب']}
+              rows={absences.map((record) => [
+                salaryDate(record.date),
+                record.notes || 'غياب مسجل',
+                salaryAmount(absences.length ? Number(summary.absenceDeduction || 0) / absences.length : 0),
+              ])}
+              empty="لا توجد أيام غياب مسجلة"
+            />
+
+            <SalaryDetailsTable
+              title={`التأخير ومدته (${summary.lateMinutes || 0} دقيقة إجمالًا)`}
+              headers={['التاريخ', 'المدة', 'خصم التأخير']}
+              rows={lateAttendance.map((record) => [
+                salaryDate(record.date),
+                `${record.lateMinutes || 0} دقيقة`,
+                salaryAmount(record.lateDeduction),
+              ])}
+              empty="لا يوجد تأخير مسجل"
+            />
+
+            <SalaryDetailsTable
+              title="كل الخصومات وأسبابها"
+              headers={['البند', 'السبب / التفاصيل', 'المبلغ']}
+              rows={[
+                ...lateAttendance.map((record) => ['خصم التأخير', `تأخير بتاريخ ${salaryDate(record.date)} لمدة ${record.lateMinutes || 0} دقيقة`, `- ${salaryAmount(record.lateDeduction)}`]),
+                ...absences.map((record) => ['خصم الغياب', record.notes || `غياب بتاريخ ${salaryDate(record.date)}`, `- ${salaryAmount(absences.length ? Number(summary.absenceDeduction || 0) / absences.length : 0)}`]),
+                ...(details?.advances || []).map((advance) => ['خصم سلفة', advance.reason || 'سلفة معتمدة', `- ${salaryAmount(advance.amount)}`]),
+                ...(details?.violations || []).map((violation) => ['مخالفة', `${violation.violationType || violation.type || 'مخالفة'}: ${violation.reason || 'بدون سبب موضح'}`, `- ${salaryAmount(violation.amount || violation.deductionAmount)}`]),
+                ...(Number(summary.otherDeductions || 0) > 0 ? [['خصومات أخرى', 'خصم إضافي مسجل ضمن كشف الراتب في PostgreSQL', `- ${salaryAmount(summary.otherDeductions)}`]] : []),
+              ]}
+              empty="لا توجد خصومات مسجلة"
+            />
+
+            <SalaryDetailsTable
+              title="المخالفات ومبالغها"
+              headers={['التاريخ', 'نوع المخالفة', 'السبب', 'المبلغ']}
+              rows={(details?.violations || []).map((violation) => [
+                salaryDate(violation.violationDate || violation.date),
+                violation.violationType || violation.type || 'مخالفة',
+                violation.reason || 'بدون سبب موضح',
+                salaryAmount(violation.amount || violation.deductionAmount),
+              ])}
+              empty="لا توجد مخالفات"
+            />
+
+            <SalaryDetailsTable
+              title="السلف"
+              headers={['التاريخ', 'السبب', 'المبلغ']}
+              rows={(details?.advances || []).map((advance) => [
+                salaryDate(advance.requestedAt || advance.createdAt),
+                advance.reason || 'سلفة معتمدة',
+                salaryAmount(advance.amount),
+              ])}
+              empty="لا توجد سلف معتمدة"
+            />
+
+            <SalaryDetailsTable
+              title="المكافآت والإضافات الأخرى"
+              headers={['التاريخ', 'النوع / السبب', 'المبلغ']}
+              rows={[
+                ...(Number(summary.overtimeBonus || 0) > 0 ? [['وقت إضافي', `${summary.workedHours || 0} ساعة عمل مسجلة`, `+ ${salaryAmount(summary.overtimeBonus)}`]] : []),
+                ...(details?.bonuses || []).map((bonus) => [salaryDate(bonus.date || bonus.createdAt), bonus.reason || bonus.notes || 'مكافأة', `+ ${salaryAmount(bonus.amount)}`]),
+              ]}
+              empty="لا توجد مكافآت أو إضافات أخرى"
+            />
+
+            <section className="dhd-salary-details-final">
+              <div><span>إجمالي الخصومات</span><strong>{salaryAmount(summary.totalDeductions)}</strong></div>
+              <div><span>إجمالي الإضافات</span><strong>{salaryAmount(Number(summary.overtimeBonus || 0) + Number(summary.bonusTotal || 0))}</strong></div>
+              <div><span>صافي الراتب النهائي</span><strong>{salaryAmount(summary.finalSalary)}</strong></div>
+            </section>
+          </>
+        ) : (
+          <section className="dhd-section-card"><p className="dhd-empty-state">لا يوجد كشف راتب لهذه الفترة.</p></section>
+        )}
+      </div>
+    </main>
+  );
+}
+
 function SalarySection() {
+  const [, navigate] = useLocation();
   const [salaries, setSalaries] = useState<SalaryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [opening, setOpening] = useState<number | null>(null);
   const [receiving, setReceiving] = useState<number | null>(null);
 
   const loadSalaries = useCallback(async () => {
@@ -709,39 +970,6 @@ function SalarySection() {
       stream?.close();
     };
   }, [loadSalaries]);
-
-  const openPdf = async (salary: SalaryRecord) => {
-    if (opening !== null) return;
-    setOpening(salary.id);
-    const previewWindow = window.open('', '_blank');
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15_000);
-    try {
-      const headers = employeeAuthHeaders();
-      const resp = await fetch(`/api/employee/salaries/${salary.id || 0}/pdf`, {
-        credentials: 'include',
-        headers,
-        signal: controller.signal,
-      });
-      if (!resp.ok) throw new Error('تعذر تحميل الكشف');
-      const contentType = resp.headers.get('content-type') || '';
-      if (!contentType.includes('application/pdf')) throw new Error('الاستجابة ليست ملف PDF');
-      const blob = await resp.blob();
-      if (!blob.size) throw new Error('ملف PDF فارغ');
-      const url = URL.createObjectURL(blob);
-      if (previewWindow) {
-        previewWindow.location.href = url;
-      } else {
-        window.location.assign(url);
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      if (previewWindow) previewWindow.close();
-    } finally {
-      window.clearTimeout(timeout);
-      setOpening(null);
-    }
-  };
 
   const confirmReceived = async (salaryId: number) => {
     if (receiving !== null) return;
@@ -823,11 +1051,9 @@ function SalarySection() {
                     type="button"
                     className="dhd-action-button"
                     style={{ padding: '6px 14px', fontSize: '12px', gap: '5px' }}
-                    disabled={opening === salary.id}
-                    onClick={() => void openPdf(salary)}
+                    onClick={() => navigate(`/portal/salaries/${salary.id}`)}
                   >
-                    {opening === salary.id ? <span className="dhd-spinner" /> : <FileText size={14} />}
-                    كشف PDF
+                    <FileText size={14} /> تفاصيل كشف الراتب
                   </button>
                 </div>
               </div>
@@ -936,6 +1162,7 @@ function Router() {
         <Route path="/" component={() => <Redirect to="/portal/login" />} />
         <Route path="/portal/login" component={EmployeeLogin} />
         <Route path="/portal/account" component={() => <Redirect to="/portal" />} />
+        <Route path="/portal/salaries/:id" component={EmployeeSalaryDetailsPage} />
         <Route path="/portal" component={EmployeeHome} />
         <Route component={NotFound} />
       </Switch>

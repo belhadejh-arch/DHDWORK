@@ -1013,6 +1013,13 @@ function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>, pd
   };
 }
 
+function toSalaryDetailsPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
+  const payload = toPayslipPayload(data);
+  if (!payload) return null;
+  const { pdfUrl: _pdfUrl, ...details } = payload;
+  return details;
+}
+
 async function getSalaryForPeriod(employeeId: number, month: unknown, year: unknown) {
   const normalizedMonth = String(month || '').padStart(2, '0');
   const numericYear = Number(year);
@@ -1160,6 +1167,17 @@ apiRouter.get('/salaries/:id', async (req, res) => {
   const result = await requireSalaryAccess(req, res, Number(req.params.id));
   if (!result) return;
   return res.json(result.salary);
+});
+
+// Shared PostgreSQL-backed JSON details used by both ADMIN and EMPLOYEE.
+// The calculation/snapshot selection is kept in getSalaryPdfData so this
+// endpoint cannot drift from the existing salary and payment calculations.
+apiRouter.get('/salaries/:id/details', async (req, res) => {
+  const result = await requireSalaryAccess(req, res, Number(req.params.id));
+  if (!result) return;
+  const data = toSalaryDetailsPayload(await getSalaryPdfData(Number(req.params.id)));
+  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
+  return res.json(data);
 });
 
 // JSON payslip data used by the admin and employee print views.
@@ -1724,6 +1742,18 @@ async function getEmployeePayslip(req: express.Request, res: express.Response) {
     return res.status(500).json({ message: 'تعذر قراءة كشف الراتب من قاعدة البيانات' });
   }
 }
+
+apiRouter.get('/employee/salaries/:id/details', async (req, res) => {
+  const ctx = await getAuthContext(req);
+  if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
+  const salary = await getSalaryById(Number(req.params.id));
+  if (!salary || Number(salary.employeeId) !== Number(ctx.employee.id)) {
+    return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
+  }
+  const data = toSalaryDetailsPayload(await getSalaryPdfData(Number(req.params.id)));
+  if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
+  return res.json(data);
+});
 
 async function getEmployeePayslipPdf(req: express.Request, res: express.Response) {
   const salaryId = Number(req.params.id);

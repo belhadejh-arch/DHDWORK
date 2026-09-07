@@ -500,38 +500,46 @@ export async function updateEmployee(id: number, data: any) {
     const db = getDb();
     if (db) {
       const updateData: any = { updatedAt: new Date() };
-      if (data.firstName !== undefined) updateData.firstName = data.firstName;
-      if (data.lastName !== undefined) updateData.lastName = data.lastName;
-      if (data.email !== undefined) updateData.email = data.email;
-      if (data.phone !== undefined) updateData.phone = data.phone;
-      if (data.role !== undefined || data.position !== undefined) {
-        updateData.position = data.position || data.role;
+      const hasValue = (value: unknown) =>
+        value !== undefined &&
+        value !== null &&
+        !(typeof value === "string" && value.trim() === "");
+      if (hasValue(data.firstName)) updateData.firstName = data.firstName;
+      if (hasValue(data.lastName)) updateData.lastName = data.lastName;
+      if (hasValue(data.email)) updateData.email = data.email;
+      if (hasValue(data.phone)) updateData.phone = data.phone;
+      if (hasValue(data.position)) {
+        updateData.position = data.position;
+      } else if (hasValue(data.role)) {
+        updateData.position = data.role;
       }
-      if (data.officeId !== undefined) {
+      if (hasValue(data.officeId)) {
         const officeId = Number(data.officeId);
         if (!Number.isInteger(officeId) || officeId <= 0) throw new Error("المكتب المحدد غير صالح");
         const office = await db.select({ id: offices.id }).from(offices).where(eq(offices.id, officeId)).limit(1);
         if (!office[0]) throw new Error("المكتب المحدد غير موجود");
         updateData.officeId = officeId;
       }
-      if (data.baseSalary !== undefined) updateData.baseSalary = String(data.baseSalary);
-      if (data.status !== undefined) updateData.isActive = data.status === "active";
-      if (data.isActive !== undefined) {
+      if (hasValue(data.baseSalary)) updateData.baseSalary = String(data.baseSalary);
+      if (hasValue(data.status)) updateData.isActive = data.status === "active";
+      if (data.isActive !== undefined && data.isActive !== null) {
         updateData.isActive = data.isActive === true || data.isActive === "true" || data.isActive === 1 || data.isActive === "1";
       }
-      if (data.restDays !== undefined) {
+      if (hasValue(data.restDays)) {
         updateData.restDays = typeof data.restDays === "string" ? data.restDays : JSON.stringify(data.restDays);
       }
-      if (data.qrCodeSecret !== undefined || data.qrCodeData !== undefined) {
-        updateData.qrCodeData = data.qrCodeData || data.qrCodeSecret;
+      if (hasValue(data.qrCodeData)) {
+        updateData.qrCodeData = data.qrCodeData;
+      } else if (hasValue(data.qrCodeSecret)) {
+        updateData.qrCodeData = data.qrCodeSecret;
       }
       // Additional fields that were previously missing
-      if (data.serialNumber !== undefined) updateData.serialNumber = data.serialNumber;
-      if (data.workStartTime !== undefined) updateData.workStartTime = data.workStartTime;
-      if (data.workEndTime !== undefined) updateData.workEndTime = data.workEndTime;
-      if (data.hireDate !== undefined) updateData.hireDate = data.hireDate;
-      if (data.joinedAt !== undefined) updateData.hireDate = data.joinedAt;
-      if (data.paymentDay !== undefined) updateData.paymentDay = Number(data.paymentDay);
+      if (hasValue(data.serialNumber)) updateData.serialNumber = data.serialNumber;
+      if (hasValue(data.workStartTime)) updateData.workStartTime = data.workStartTime;
+      if (hasValue(data.workEndTime)) updateData.workEndTime = data.workEndTime;
+      if (hasValue(data.hireDate)) updateData.hireDate = data.hireDate;
+      if (hasValue(data.joinedAt)) updateData.hireDate = data.joinedAt;
+      if (hasValue(data.paymentDay)) updateData.paymentDay = Number(data.paymentDay);
       if (data.isUnrestricted !== undefined) updateData.isUnrestricted = Boolean(data.isUnrestricted);
       const [updated] = await db.update(employees).set(updateData).where(eq(employees.id, Number(id))).returning();
       if (updated) {

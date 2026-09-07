@@ -1,7 +1,6 @@
 (() => {
   "use strict";
   let latestPreview = null;
-  let latestPreviewUrl = "";
   let reviewHistoryEntryActive = false;
   const originalFetch = window.fetch.bind(window);
   const formatAmount = (value) =>
@@ -127,52 +126,11 @@
     if (requestUrl.includes("/salaries/preview?") && response.ok) {
       response.clone().json().then((payload) => {
         latestPreview = payload;
-        latestPreviewUrl = payload.previewPdfUrl || "";
         window.setTimeout(enhanceSalaryReview, 0);
       }).catch(() => {});
     }
     return response;
   };
-  async function openPreviewPdf(button) {
-    if (!latestPreviewUrl) {
-      notify("تعذر تحديد رابط معاينة PDF");
-      return;
-    }
-    const popup = window.open("about:blank", "_blank");
-    if (!popup) {
-      notify("اسمح بفتح النوافذ المنبثقة لعرض كشف الراتب");
-      return;
-    }
-    button.disabled = true;
-    const oldText = button.textContent;
-    button.textContent = "جارٍ إنشاء PDF...";
-    try {
-      popup.document.title = "جارٍ تجهيز كشف الراتب";
-      popup.document.body.dir = "rtl";
-      popup.document.body.innerHTML = "<p style='font-family: sans-serif; padding: 24px'>جارٍ تجهيز معاينة كشف الراتب...</p>";
-      const headers = adminHeaders("application/pdf");
-      const response = await originalFetch(latestPreviewUrl, {
-        credentials: "include",
-        headers,
-      });
-      if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(detail || `HTTP ${response.status}`);
-      }
-      const blob = await response.blob();
-      if (blob.type !== "application/pdf") throw new Error("الاستجابة ليست ملف PDF");
-      const objectUrl = URL.createObjectURL(blob);
-      popup.location.replace(objectUrl);
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 120000);
-    } catch (error) {
-      popup.close();
-      console.error("[salary-review] PDF preview failed", error);
-      notify("تعذر فتح معاينة PDF");
-    } finally {
-      button.disabled = false;
-      button.textContent = oldText;
-    }
-  }
   function addReviewButtonBeforePayment(payButton) {
     if (payButton.dataset.dhdReviewButtonAdded === "1") return;
     const row = payButton.closest("tr");
@@ -182,14 +140,17 @@
     const reviewButton = document.createElement("button");
     reviewButton.type = "button";
     reviewButton.className = "dhd-salary-review-trigger";
-    reviewButton.textContent = "مراجعة كشف الحساب";
-    reviewButton.title = "راجع الحساب وPDF قبل تنفيذ الدفع";
+    reviewButton.textContent = "فتح تفاصيل كشف الراتب";
+    reviewButton.title = "اعرض تفاصيل الراتب قبل الدفع أو التأجيل";
     reviewButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       void showGeneratedSalaryReview(payButton);
     });
     container.insertBefore(reviewButton, payButton);
+    // Do not leave a direct payment action visible before the PostgreSQL
+    // details have been loaded and reviewed.
+    payButton.hidden = true;
     payButton.dataset.dhdReviewButtonAdded = "1";
   }
 
@@ -326,7 +287,6 @@
         ? preview.salary
         : null;
       latestPreview = preview;
-      latestPreviewUrl = preview.previewPdfUrl || "";
       const summary = preview.summary || preview;
        if (!document.contains(overlay)) return;
       if (preview.previewState === "paid" && salary?.status !== "paid" && salary?.status !== "received") {
@@ -343,28 +303,53 @@
       const detailMarkup = [
         detailTable(
           "تفاصيل الحضور والغياب",
-          ["التاريخ", "الحالة", "الدخول", "الخروج", "التأخير", "خصم الغياب"],
+           ["التاريخ", "الحالة", "الدخول", "الخروج", "ساعات العمل", "التأخير", "خصم التأخير", "خصم الغياب"],
           attendanceRecords.map((record) => [
             formatDate(record.date),
             record.isAbsent ? "غائب" : Number(record.lateMinutes || 0) > 0 ? "متأخر" : "حاضر",
             record.checkInTime || "—",
             record.checkOutTime || "—",
+             `${(Number(record.workedMinutes || 0) / 60).toFixed(2)} ساعة`,
             Number(record.lateMinutes || 0) > 0 ? `${record.lateMinutes} دقيقة` : "—",
+             Number(record.lateDeduction || 0) > 0 ? `- ${formatAmount(record.lateDeduction)}` : "—",
             record.isAbsent ? `- ${formatAmount(absenceRate)}` : "—",
           ]),
           "لا توجد سجلات حضور لهذه الفترة",
         ),
         detailTable(
-          "المخالفات والخصومات",
-          ["التاريخ", "النوع", "السبب", "المبلغ"],
-          violations.map((violation) => [
-            formatDate(violation.violationDate || violation.createdAt),
-            violation.violationType || violation.type || "مخالفة",
-            violation.reason || violation.notes || "—",
-            `- ${formatAmount(violation.amount)}`,
-          ]),
-          "لا توجد مخالفات أو خصومات",
+           "كل الخصومات وأسبابها",
+           ["البند", "السبب / التفاصيل", "المبلغ"],
+           [
+             ...attendanceRecords.filter((record) => Number(record.lateMinutes || 0) > 0).map((record) => [
+               "خصم التأخير",
+               `تأخير بتاريخ ${formatDate(record.date)} لمدة ${record.lateMinutes || 0} دقيقة`,
+               `- ${formatAmount(record.lateDeduction)}`,
+             ]),
+             ...attendanceRecords.filter((record) => record.isAbsent).map((record) => [
+               "خصم الغياب",
+               record.notes || `غياب بتاريخ ${formatDate(record.date)}`,
+               `- ${formatAmount(absenceRate)}`,
+             ]),
+             ...advances.map((advance) => ["خصم سلفة", advance.reason || "سلفة معتمدة", `- ${formatAmount(advance.amount)}`]),
+             ...violations.map((violation) => [
+               "مخالفة",
+               `${violation.violationType || violation.type || "مخالفة"}: ${violation.reason || violation.notes || "بدون سبب موضح"}`,
+               `- ${formatAmount(violation.amount || violation.deductionAmount)}`,
+             ]),
+           ],
+           "لا توجد خصومات مسجلة",
         ),
+         detailTable(
+           "المخالفات ومبالغها",
+           ["التاريخ", "النوع", "السبب", "المبلغ"],
+           violations.map((violation) => [
+             formatDate(violation.violationDate || violation.createdAt),
+             violation.violationType || violation.type || "مخالفة",
+             violation.reason || violation.notes || "بدون سبب موضح",
+             formatAmount(violation.amount || violation.deductionAmount),
+           ]),
+           "لا توجد مخالفات",
+         ),
         detailTable(
           "الإضافات والمكافآت",
           ["التاريخ", "السبب", "المبلغ"],
@@ -401,7 +386,9 @@
           <div><span>المخالفات</span><b class="negative">${formatAmount(summary.violationTotal)}</b></div>
           <div><span>السلف</span><b class="negative">${formatAmount(summary.advanceTotal)}</b></div>
           <div><span>الزيادات والمكافآت</span><b class="positive">+ ${formatAmount(Number(summary.bonusTotal || 0) + Number(summary.overtimeBonus || 0))}</b></div>
+           <div><span>ساعات العمل</span><b>${Number(summary.workedHours || 0).toFixed(2)} ساعة</b></div>
           <div><span>خصم الغياب المطبق</span><b class="negative">- ${formatAmount(summary.absenceDeduction)}</b></div>
+           <div><span>خصومات أخرى</span><b class="negative">- ${formatAmount(summary.otherDeductions)}</b></div>
           <div><span>إجمالي الخصومات</span><b class="negative">- ${formatAmount(summary.totalDeductions)}</b></div>
           <div class="net"><span>صافي المبلغ المستحق</span><b>${formatAmount(summary.finalSalary)}</b></div>
         </div>
@@ -409,11 +396,6 @@
         <div class="dhd-generated-review-actions"></div>
       `;
       const actions = body.querySelector(".dhd-generated-review-actions");
-      const pdfButton = document.createElement("button");
-      pdfButton.type = "button";
-      pdfButton.className = "dhd-salary-preview-pdf";
-      pdfButton.textContent = "فتح PDF قبل التحويل";
-      pdfButton.addEventListener("click", () => openPreviewPdf(pdfButton));
       const postponeButton = document.createElement("button");
       postponeButton.type = "button";
       postponeButton.className = "dhd-salary-review-trigger";
@@ -451,7 +433,7 @@
           confirmButton.textContent = "دفع";
         }
       });
-      actions.append(pdfButton, postponeButton, confirmButton);
+       actions.append(postponeButton, confirmButton);
     } catch (error) {
       console.error("[salary-review] generated salary review failed", error);
       const errorBody = overlay.querySelector(".dhd-generated-review-body");
@@ -482,7 +464,7 @@
     box.innerHTML = `
       <div class="dhd-salary-review-state">
         <strong>قيد المراجعة قبل التحويل</strong>
-        <span>فتح المعاينة أو PDF لا يغيّر حالة الراتب إلى مدفوع.</span>
+        <span>عرض التفاصيل لا يغيّر حالة الراتب إلى مدفوع.</span>
       </div>
       <div class="dhd-salary-review-totals">
         <div><span>أيام الحضور</span><b>${summary.presentDays || 0}</b></div>
@@ -495,12 +477,6 @@
         <div><span>صافي المستحق</span><b>${formatAmount(summary.finalSalary)}</b></div>
       </div>
     `;
-    const pdfButton = document.createElement("button");
-    pdfButton.type = "button";
-    pdfButton.className = "dhd-salary-preview-pdf";
-    pdfButton.textContent = "فتح PDF قبل التحويل";
-    pdfButton.addEventListener("click", () => openPreviewPdf(pdfButton));
-    box.appendChild(pdfButton);
     dialog.insertBefore(box, footer);
   }
   function enhanceSalaryReview() {
@@ -511,8 +487,7 @@
   }
   const style = document.createElement("style");
   style.textContent = `
-    .dhd-salary-review-trigger,
-    .dhd-salary-preview-pdf {
+    .dhd-salary-review-trigger {
       min-height: 2rem;
       border: 1px solid #f59e0b;
       border-radius: .5rem;
@@ -524,8 +499,7 @@
       font-weight: 700;
       cursor: pointer;
     }
-    .dhd-salary-review-trigger:hover,
-    .dhd-salary-preview-pdf:hover { background: #ffedd5; }
+    .dhd-salary-review-trigger:hover { background: #ffedd5; }
     .dhd-salary-review-summary {
       display: grid;
       gap: .75rem;
@@ -553,7 +527,6 @@
       font-size: .72rem;
     }
     .dhd-salary-review-totals b { color: #be123c; font-size: .85rem; }
-    .dhd-salary-preview-pdf { width: 100%; }
     .dhd-salary-review-toast {
       position: fixed;
       inset-inline: 1rem;
