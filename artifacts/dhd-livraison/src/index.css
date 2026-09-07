@@ -625,6 +625,30 @@ button {
   color: #b4a79b;
 }
 
+.dhd-qr-camera-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.dhd-qr-camera-panel {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e6ddd3;
+  border-radius: 14px;
+  background: #211b17;
+}
+
+.dhd-qr-camera-panel video {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #000;
+}
+
 .dhd-primary-button {
   display: flex;
   align-items: center;

@@ -103,21 +103,17 @@ function saveLocalStore() {
 // Helpers to format PostgreSQL rows into rich API objects
 function formatOffice(o: any) {
   if (!o) return null;
-  const officeId = Number(o.id);
-  const rawName = o.name || (officeId === 2 ? "مكتب عين الفكرون" : "مكتب أم البواقي");
-  const isEye = rawName.includes("عين") || officeId === 2;
-
   return {
     ...o,
-    id: officeId,
-    name: rawName,
-    code: o.code || (isEye ? "OEF-01" : officeId === 1 ? "OEB-01" : `OFF-${officeId}`),
-    city: o.city || (isEye ? "عين الفكرون" : "أم البواقي"),
-    address: o.address || (isEye ? "عين الفكرون، أم البواقي، الجزائر" : "أم البواقي، الجزائر"),
-    phone: o.phone || (isEye ? "032000002" : "032000001"),
-    latitude: String(o.latitude || (isEye ? "35.9700208" : "35.8707722")),
-    longitude: String(o.longitude || (isEye ? "6.8771648" : "7.1101606")),
-    geofenceRadiusMeters: o.geofenceRadiusMeters ? Number(o.geofenceRadiusMeters) : (isEye ? 150 : 100),
+    id: Number(o.id),
+    name: o.name || null,
+    code: o.code || null,
+    city: o.city || null,
+    address: o.address || null,
+    phone: o.phone || null,
+    latitude: o.latitude == null ? null : String(o.latitude),
+    longitude: o.longitude == null ? null : String(o.longitude),
+    geofenceRadiusMeters: o.geofenceRadiusMeters == null ? 150 : Number(o.geofenceRadiusMeters),
     active: o.active !== false && o.isActive !== false,
     qrCodeSecret: o.qrCodeData || null,
     qrCodeData: o.qrCodeData || null
@@ -377,6 +373,7 @@ export async function getEmployeeByQrSecret(secret: string) {
   try {
     const db = getDb();
     const result = await db.select().from(employees).where(eq(employees.qrCodeData, s));
+    if (result.length > 1) return null;
     const matched = result[0];
     if (matched) {
       const allOffices = await db.select().from(offices);
@@ -622,7 +619,9 @@ export async function getOfficeByQrSecret(secret: string) {
   if (!value) return null;
   const db = getDb();
   const result = await db.select().from(offices).where(eq(offices.qrCodeData, value));
-  return result[0] ? formatOffice(result[0]) : null;
+  // A QR value must identify exactly one office. Fail closed if bad legacy
+  // data has accidentally assigned the same token to multiple offices.
+  return result.length === 1 ? formatOffice(result[0]) : null;
 }
 
 function newQrValue(prefix: string) {
@@ -1010,6 +1009,10 @@ export async function recordAttendance(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
   const dateStr = data.date || new Date().toISOString().split("T")[0];
   const checkInTimeStr = data.checkInTime || new Date().toTimeString().split(" ")[0];
+  const officeId = data.officeId == null ? emp?.officeId : Number(data.officeId);
+  if (data.requireDatabase && (!officeId || Number(emp?.officeId) !== Number(officeId))) {
+    throw new Error("Employee is not assigned to the QR office");
+  }
 
   try {
     const db = getDb();
@@ -1021,7 +1024,7 @@ export async function recordAttendance(data: any) {
         .insert(attendance)
         .values({
           employeeId: Number(data.employeeId),
-          officeId: Number(data.officeId || emp?.officeId || 1),
+           officeId: officeId == null ? null : Number(officeId),
           date: dateStr,
           checkInTime: checkInTimeStr,
           lateMinutes: metrics.lateMinutes,
@@ -1041,9 +1044,13 @@ export async function recordAttendance(data: any) {
         eq(attendance.employeeId, Number(data.employeeId)),
         eq(attendance.date, dateStr),
       )).limit(1);
-      if (existing) return formatAttendanceRecord(existing, emp);
+      if (existing) {
+        const formatted = formatAttendanceRecord(existing, emp);
+        return data.rejectDuplicate ? { ...formatted, duplicate: true } : formatted;
+      }
     }
   } catch (err) {
+    if (data.requireDatabase) throw err;
     console.warn("DB recordAttendance failed, using fallback:", err);
   }
 

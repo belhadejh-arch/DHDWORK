@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -47,6 +47,7 @@ type Employee = {
   position?: string | null;
   role?: string | null;
   officeName?: string | null;
+  officeId?: number | null;
   joinedAt?: string | null;
   status?: string;
   isActive?: boolean;
@@ -523,6 +524,12 @@ function EmployeeHome() {
   const [qrToken, setQrToken] = useState('');
   const [attendanceAction, setAttendanceAction] = useState<'checkin' | 'checkout' | null>(null);
   const [attendanceError, setAttendanceError] = useState('');
+  const [isQrCameraOpen, setIsQrCameraOpen] = useState(false);
+  const [qrCameraError, setQrCameraError] = useState('');
+  const qrVideoRef = useRef<HTMLVideoElement | null>(null);
+  const qrCameraStreamRef = useRef<MediaStream | null>(null);
+  const qrScanTimerRef = useRef<number | null>(null);
+  const qrScanBusyRef = useRef(false);
   const { attendance, violations, isLoading, error, refresh } = useEmployeePortalData(employee);
 
   if (!employee && isChecking) return <LoadingScreen />;
@@ -532,8 +539,71 @@ function EmployeeHome() {
   const joinedDate = employee.joinedAt
     ? new Intl.DateTimeFormat('ar-DZ', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(employee.joinedAt))
     : 'غير محدد';
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getAlgiersDate();
   const todayAttendance = attendance.find((item) => String(item.date || '').slice(0, 10) === today);
+
+  const closeQrCamera = useCallback(() => {
+    if (qrScanTimerRef.current != null) {
+      window.clearInterval(qrScanTimerRef.current);
+      qrScanTimerRef.current = null;
+    }
+    qrCameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    qrCameraStreamRef.current = null;
+    qrScanBusyRef.current = false;
+    setIsQrCameraOpen(false);
+  }, []);
+
+  const openQrCamera = useCallback(async () => {
+    setQrCameraError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setQrCameraError('هذا المتصفح لا يدعم كاميرا QR. الصق رمز المكتب يدويًا.');
+      return;
+    }
+    const BarcodeDetectorCtor = (window as Window & {
+      BarcodeDetector?: new (options?: { formats: string[] }) => {
+        detect(source: CanvasImageSource): Promise<Array<{ rawValue?: string }>>;
+      };
+    }).BarcodeDetector;
+    if (!BarcodeDetectorCtor) {
+      setQrCameraError('ماسح QR غير متاح في هذا المتصفح. استخدم Chrome على Android أو الصق الرمز يدويًا.');
+      return;
+    }
+    try {
+      closeQrCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      qrCameraStreamRef.current = stream;
+      setIsQrCameraOpen(true);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      const video = qrVideoRef.current;
+      if (!video) throw new Error('تعذر تشغيل كاميرا QR');
+      video.srcObject = stream;
+      await video.play();
+      const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] });
+      qrScanTimerRef.current = window.setInterval(async () => {
+        if (qrScanBusyRef.current || video.readyState < 2) return;
+        qrScanBusyRef.current = true;
+        try {
+          const codes = await detector.detect(video);
+          const rawValue = codes.find((code) => typeof code.rawValue === 'string' && code.rawValue.trim())?.rawValue;
+          if (rawValue) {
+            setQrToken(rawValue.trim());
+            closeQrCamera();
+          }
+        } catch {
+          // Keep the camera open; a transient Android camera frame can fail.
+        } finally {
+          qrScanBusyRef.current = false;
+        }
+      }, 350);
+    } catch {
+      closeQrCamera();
+      setQrCameraError('تعذر فتح الكاميرا. اسمح بالوصول إليها وتأكد من استخدام HTTPS على الهاتف.');
+    }
+  }, [closeQrCamera]);
+
+  useEffect(() => closeQrCamera, [closeQrCamera]);
 
   const submitAttendance = async (action: 'checkin' | 'checkout') => {
     if (!qrToken.trim() || attendanceAction) return;
@@ -604,6 +674,17 @@ function EmployeeHome() {
               <QrCode size={19} aria-hidden="true" />
               <input id="office-qr" value={qrToken} onChange={(event) => setQrToken(event.target.value)} placeholder="امسح أو الصق رمز المكتب" dir="ltr" autoComplete="off" />
             </div>
+            <div className="dhd-qr-camera-actions">
+              <button type="button" className="dhd-secondary-button" onClick={() => void openQrCamera()} disabled={Boolean(attendanceAction)}>
+                <QrCode size={16} /> فتح كاميرا QR
+              </button>
+              {isQrCameraOpen && (
+                <div className="dhd-qr-camera-panel" role="dialog" aria-label="ماسح QR للمكتب">
+                  <video ref={qrVideoRef} autoPlay muted playsInline />
+                  <button type="button" className="dhd-secondary-button" onClick={closeQrCamera}>إغلاق الكاميرا</button>
+                </div>
+              )}
+            </div>
             <div className="dhd-action-buttons">
               <button type="button" className="dhd-action-button is-checkin" disabled={!qrToken.trim() || Boolean(attendanceAction) || Boolean(todayAttendance?.checkInTime)} onClick={() => submitAttendance('checkin')}>
                 <LogIn size={17} /> {attendanceAction === 'checkin' ? 'جارٍ التسجيل...' : 'تسجيل الحضور'}
@@ -613,6 +694,7 @@ function EmployeeHome() {
               </button>
             </div>
             <p className="dhd-helper"><MapPin size={14} /> يجب تفعيل GPS والتواجد داخل نطاق المكتب.</p>
+            {qrCameraError && <p className="dhd-form-error" role="alert">{qrCameraError}</p>}
             {attendanceError && <p className="dhd-form-error" role="alert">{attendanceError}</p>}
           </div>
           <AttendanceTable records={attendance} isLoading={isLoading} error={error} />
@@ -1082,6 +1164,10 @@ function getCurrentPosition(): Promise<GeolocationPosition> {
       maximumAge: 0,
     });
   });
+}
+
+function getAlgiersDate(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Algiers' }).format(now);
 }
 
 function useEmployeePortalData(employee: Employee | null) {

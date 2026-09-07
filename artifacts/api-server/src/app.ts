@@ -76,7 +76,6 @@ import {
   rotateAdminQr,
   ensureAdminSerial,
   updateAdmin,
-  seedOfficialOffices,
   getSalaryPdfData,
   getSalaryPreviewData,
   listAttendance,
@@ -2031,15 +2030,17 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
   const qrValue = normalizeQrValue(req.body?.qrToken ?? req.body?.qrCodeData);
   const office = await getOfficeByQrSecret(qrValue);
   if (!office) return res.status(401).json({ code: 'invalid_qr', message: 'رمز المكتب غير صالح' });
-  if (ctx.employee.officeId != null && Number(ctx.employee.officeId) !== Number(office.id)) {
+  if (ctx.employee.officeId == null || Number(ctx.employee.officeId) !== Number(office.id)) {
     return res.status(403).json({ code: 'wrong_office', message: 'رمز QR يخص مكتباً آخر' });
   }
 
-  const now = new Date();
-  const date = now.toISOString().slice(0, 10);
-  const existing = (await listAttendance(ctx.employee.id)).find((item: any) => String(item.date).slice(0, 10) === date);
+  const { date, time } = getAttendanceClock();
+  const existing = (await listAttendance(ctx.employee.id)).find((item: any) => String(item.date || '').slice(0, 10) === date);
   if (req.params.action === 'checkin' && existing?.checkInTime) {
     return res.status(409).json({ code: 'already_checked_in', message: 'تم تسجيل الحضور مسبقاً اليوم' });
+  }
+  if (req.params.action === 'checkin' && existing?.isAbsent) {
+    return res.status(409).json({ code: 'already_marked_absent', message: 'تم تسجيل هذا اليوم كغياب ولا يمكن فتح حضور جديد عبر QR' });
   }
   if (req.params.action === 'checkout' && (!existing || existing.checkOutTime)) {
     return res.status(409).json({ code: 'already_checked_out', message: 'لا يوجد تسجيل حضور مفتوح اليوم' });
@@ -2075,10 +2076,15 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
       employeeId: ctx.employee.id,
       officeId: office.id,
       date,
-      checkInTime: now.toTimeString().slice(0, 8),
+      checkInTime: time,
       latitude: empLat,
-      longitude: empLng
+      longitude: empLng,
+      rejectDuplicate: true,
+      requireDatabase: true,
     });
+    if ((record as any)?.duplicate) {
+      return res.status(409).json({ code: 'already_checked_in', message: 'تم تسجيل الحضور مسبقاً اليوم' });
+    }
     return res.status(201).json({ ...record, ok: true });
   }
 
@@ -2087,7 +2093,7 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
   }
 
   const updated = await completeAttendance(existing!.id, {
-    checkOutTime: now.toTimeString().slice(0, 8),
+    checkOutTime: time,
     latitude: empLat,
     longitude: empLng
   });
@@ -2553,14 +2559,8 @@ async function autoMarkAbsentees() {
 }
 
 // ─── Startup initialisation ───────────────────────────────────────────────
-// Seed offices with real coordinates and create a default admin if none exists.
+// PostgreSQL is the source of truth for real office records and their QR values.
 (async () => {
-  try {
-    await seedOfficialOffices();
-  } catch (e) {
-    console.warn('[startup] seedOfficialOffices error:', e);
-  }
-
   // Run auto-absence immediately on startup, then every hour
   try {
     await autoMarkAbsentees();
@@ -2599,4 +2599,22 @@ function normalizeQrValue(raw: unknown): string {
     // scanners that serialize a small payload.
   }
   return value;
+}
+
+function getAttendanceClock(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Algiers',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}:${values.second}`,
+  };
 }
