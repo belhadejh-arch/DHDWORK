@@ -176,10 +176,15 @@ function useEmployeeSession() {
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error('session-expired');
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            throw new Error('session-invalid');
+          }
+          throw new Error('session-check-failed');
+        }
         const data = await response.json() as { isAuthenticated?: boolean; userType?: string; employee?: Employee };
         if (!data.isAuthenticated || data.userType !== 'employee' || !data.employee) {
-          throw new Error('session-expired');
+          throw new Error('session-invalid');
         }
         return data.employee;
       })
@@ -188,8 +193,14 @@ function useEmployeeSession() {
         setEmployee(currentEmployee);
         window.localStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(currentEmployee));
       })
-      .catch(() => {
-        if (!cancelled && !stored) clearSession();
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          // Keep the cached account during a temporary network/cold-start
+          // failure, but remove it when the API explicitly rejects the
+          // persisted session.
+          const isInvalidSession = reason instanceof Error && reason.message === 'session-invalid';
+          if (isInvalidSession || !stored) clearSession();
+        }
       })
       .finally(() => {
         if (!cancelled) setIsChecking(false);
