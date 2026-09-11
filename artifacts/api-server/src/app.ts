@@ -157,6 +157,14 @@ app.get('/api/healthz', (req, res) => {
 // Primary API Router
 const apiRouter = express.Router();
 
+// Render/free instances can sleep, so an in-memory hourly timer alone is not
+// enough to guarantee daily absence marking. A request-triggered check catches
+// up on the first request after a wake-up.
+apiRouter.use((_req, _res, next) => {
+  void autoMarkAbsentees();
+  next();
+});
+
 apiRouter.get('/status', (req, res) => {
   res.json({ status: 'active', app: 'DHD Livraison API Server', database: 'connected' });
 });
@@ -210,7 +218,9 @@ function sessionCookieOptions() {
     httpOnly: true,
     sameSite: 'lax' as const,
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000,
+    // Keep the browser session across restarts. The API still verifies the
+    // random server session and the account's active state on every request.
+    maxAge: 365 * 24 * 60 * 60 * 1000,
   };
 }
 
@@ -2550,28 +2560,49 @@ if (fs.existsSync(frontendDist)) {
 // Marks employees absent for every past workday they missed (no check-in),
 // respecting each employee's individual restDays list. Runs once at startup
 // and then every hour so short server restarts don't miss a day.
+const AUTO_ABSENCE_RETRY_MS = 15 * 60 * 1000;
+let autoAbsenceLastAttemptAt = 0;
+let autoAbsenceInFlight: Promise<number> | null = null;
+
 async function autoMarkAbsentees() {
-  try {
-    await markAutoAbsences();
-  } catch (err) {
-    console.warn('[autoMarkAbsentees] error:', err instanceof Error ? err.message : err);
-  }
+  const now = Date.now();
+  if (now - autoAbsenceLastAttemptAt < AUTO_ABSENCE_RETRY_MS) return 0;
+  if (autoAbsenceInFlight) return autoAbsenceInFlight;
+
+  autoAbsenceLastAttemptAt = now;
+  autoAbsenceInFlight = (async () => {
+    try {
+      const inserted = await markAutoAbsences();
+      if (inserted > 0) {
+        console.log(`[autoMarkAbsentees] inserted ${inserted} absence records`);
+      }
+      return inserted;
+    } catch (err) {
+      // A database hiccup must not take down auth, attendance, payroll, or
+      // requests. The next throttled attempt will retry automatically.
+      console.warn('[autoMarkAbsentees] error:', err instanceof Error ? err.message : err);
+      return 0;
+    } finally {
+      autoAbsenceInFlight = null;
+    }
+  })();
+  return autoAbsenceInFlight;
 }
 
 // ─── Startup initialisation ───────────────────────────────────────────────
 // PostgreSQL is the source of truth for real office records and their QR values.
 (async () => {
   // Run auto-absence immediately on startup, then every hour
-  try {
-    await autoMarkAbsentees();
-  } catch (e) {
-    console.warn('[startup] autoMarkAbsentees error:', e);
-  }
+  await autoMarkAbsentees();
 
 })();
 
 // Schedule auto-absence every hour (3600 seconds)
-setInterval(() => { autoMarkAbsentees().catch(() => {}); }, 3600 * 1000);
+setInterval(() => {
+  // Reset the retry throttle for the scheduled hourly run.
+  autoAbsenceLastAttemptAt = 0;
+  void autoMarkAbsentees();
+}, 3600 * 1000);
 
 // Haversine distance in metres between two GPS coordinates
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
