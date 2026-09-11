@@ -18,6 +18,8 @@
       ? String(value).slice(0, 10)
       : date.toLocaleDateString("ar-DZ");
   };
+  const isSalaryManagementRoute = () =>
+    /\/salaries(?:\/|$)|\/employees\/\d+/.test(window.location.pathname);
   const detailTable = (title, headers, rows, empty) => `
     <section class="dhd-review-detail-section">
       <h3>${escapeHtml(title)}</h3>
@@ -89,14 +91,17 @@
   const getSalaryContext = (button) => {
     const row = button.closest("tr");
     const employeeLink = row?.querySelector('a[href*="/employees/"]');
+    const employeePathId = window.location.pathname.match(/\/employees\/(\d+)/)?.[1];
     const employeeId = Number(
       button.dataset.employeeId ||
       row?.dataset.employeeId ||
       employeeLink?.getAttribute("data-employee-id") ||
-      employeeLink?.getAttribute("href")?.match(/employees\/(\d+)/)?.[1],
+      employeeLink?.getAttribute("href")?.match(/employees\/(\d+)/)?.[1] ||
+      employeePathId,
     );
+    const contextText = row?.textContent || button.parentElement?.textContent || "";
     const currentDate = new Date();
-    const period = row?.textContent?.match(/(0[1-9]|1[0-2])\s*[\/-]\s*(20\d{2})/) || [
+    const period = contextText.match(/(0[1-9]|1[0-2])\s*[\/-]\s*(20\d{2})/) || [
       "",
       String(currentDate.getMonth() + 1).padStart(2, "0"),
       String(currentDate.getFullYear()),
@@ -164,7 +169,7 @@
     });
   }
   function addSalaryDetailsButtons() {
-    if (!location.pathname.includes("/salaries")) return;
+    if (!isSalaryManagementRoute()) return;
     document.querySelectorAll("button").forEach((button) => {
       const label = button.textContent?.trim() || "";
       if (!/^(طباعة|طباعة الكشف|طباعة كشف الراتب|كشف PDF|كشف الراتب|print|print payslip|bulletin)$/i.test(label)) return;
@@ -697,7 +702,7 @@
       "";
     const isPostpone = clickedButton && /^(تأجيل|تأجيل الدفع|تأجيل الراتب|Postpone)$/i.test(label);
     const isPdfAction = clickedButton && /^(طباعة|طباعة الكشف|طباعة كشف الراتب|كشف PDF|كشف الراتب|print|print payslip|bulletin)$/i.test(label);
-    if (isPdfAction && location.pathname.includes("/salaries")) {
+    if (isPdfAction && isSalaryManagementRoute()) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
