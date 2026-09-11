@@ -309,7 +309,9 @@ export async function createSession(userType: "admin" | "employee", userId: numb
   const db = getDb();
   const token = crypto.randomBytes(32).toString("base64url");
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  // Login is persistent for normal use. The session is still random,
+  // server-side, and revalidated against the current account on every request.
+  const expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
   await db.insert(sessions).values({ token, userType, userId: Number(userId), createdAt: now, expiresAt });
   return token;
 }
@@ -321,7 +323,15 @@ export async function getSession(token: string) {
     eq(sessions.token, token),
     gt(sessions.expiresAt, new Date()),
   )).limit(1);
-  return rows[0] || null;
+  const session = rows[0];
+  if (!session) return null;
+
+  // Roll the expiry forward while the account is being used, so an active
+  // employee/admin does not get forced back to the login screen every day.
+  await db.update(sessions)
+    .set({ expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) })
+    .where(eq(sessions.token, token));
+  return session;
 }
 
 export async function deleteSession(token: string) {
