@@ -163,6 +163,27 @@
       addReviewButtonBeforePayment(payButton);
     });
   }
+  function addSalaryDetailsButtons() {
+    if (!location.pathname.includes("/salaries")) return;
+    document.querySelectorAll("button").forEach((button) => {
+      const label = button.textContent?.trim() || "";
+      if (!/^(طباعة|طباعة الكشف|طباعة كشف الراتب|كشف PDF|كشف الراتب|print|print payslip|bulletin)$/i.test(label)) return;
+      if (button.dataset.dhdDetailsButtonAdded === "1") return;
+      const detailsButton = document.createElement("button");
+      detailsButton.type = "button";
+      detailsButton.className = "dhd-salary-review-trigger";
+      detailsButton.textContent = "فتح صفحة كشف الراتب";
+      detailsButton.title = "عرض كشف الراتب داخل النظام";
+      detailsButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void showGeneratedSalaryReview(button);
+      });
+      button.hidden = true;
+      button.dataset.dhdDetailsButtonAdded = "1";
+      button.parentElement?.insertBefore(detailsButton, button);
+    });
+  }
   function addGeneratedSalaryGuards() {
     document.querySelectorAll("tr button.bg-emerald-600").forEach((button) => {
       const label = button.textContent?.trim() || "";
@@ -395,45 +416,50 @@
         <div class="dhd-generated-review-details">${detailMarkup}</div>
         <div class="dhd-generated-review-actions"></div>
       `;
-      const actions = body.querySelector(".dhd-generated-review-actions");
-      const postponeButton = document.createElement("button");
-      postponeButton.type = "button";
-      postponeButton.className = "dhd-salary-review-trigger";
-      postponeButton.textContent = "تأجيل";
-      postponeButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void postponeSalary(payButton);
-      });
-      const confirmButton = document.createElement("button");
-      confirmButton.type = "button";
-      confirmButton.className = "dhd-generated-review-confirm";
-      confirmButton.textContent = "دفع";
-      confirmButton.addEventListener("click", async () => {
-        confirmButton.disabled = true;
-        confirmButton.textContent = "جارٍ تنفيذ التحويل...";
-        try {
-          let salaryId = salary?.id;
-          if (!salaryId) {
-            const created = await fetchAdminJson("/api/salaries/single", {
-              method: "POST",
-              body: JSON.stringify({ employeeId, month, year }),
-            });
-            salaryId = created?.id || created?.salary?.id;
-          }
-          if (!salaryId) throw new Error("تعذر إنشاء سجل الراتب");
-          await fetchAdminJson(`/api/salaries/${salaryId}/pay`, { method: "PATCH" });
-          closeGeneratedReview();
-          notify("تم تحويل الراتب بنجاح وتجميد كشفه النهائي");
-          window.setTimeout(() => location.reload(), 700);
-        } catch (error) {
-          console.error("[salary-review] transfer failed", error);
-          notify(error.message || "تعذر تنفيذ التحويل");
-          confirmButton.disabled = false;
-          confirmButton.textContent = "دفع";
-        }
-      });
-       actions.append(postponeButton, confirmButton);
+       const actions = body.querySelector(".dhd-generated-review-actions");
+       const isPaid = salary?.status === "paid" || salary?.status === "received";
+       if (isPaid) {
+         actions.innerHTML = `<div class="dhd-salary-review-state"><strong>${salary.status === "received" ? "تم استلام الراتب" : "تم دفع الراتب"}</strong><span>لا توجد إجراءات إدارية متاحة لكشف راتب نهائي.</span></div>`;
+       } else {
+         const postponeButton = document.createElement("button");
+         postponeButton.type = "button";
+         postponeButton.className = "dhd-salary-review-trigger";
+         postponeButton.textContent = "تأجيل";
+         postponeButton.addEventListener("click", (event) => {
+           event.preventDefault();
+           event.stopPropagation();
+           void postponeSalary(payButton);
+         });
+         const confirmButton = document.createElement("button");
+         confirmButton.type = "button";
+         confirmButton.className = "dhd-generated-review-confirm";
+         confirmButton.textContent = "دفع";
+         confirmButton.addEventListener("click", async () => {
+           confirmButton.disabled = true;
+           confirmButton.textContent = "جارٍ تنفيذ التحويل...";
+           try {
+             let salaryId = salary?.id;
+             if (!salaryId) {
+               const created = await fetchAdminJson("/api/salaries/single", {
+                 method: "POST",
+                 body: JSON.stringify({ employeeId, month, year }),
+               });
+               salaryId = created?.id || created?.salary?.id;
+             }
+             if (!salaryId) throw new Error("تعذر إنشاء سجل الراتب");
+             await fetchAdminJson(`/api/salaries/${salaryId}/pay`, { method: "PATCH" });
+             closeGeneratedReview();
+             notify("تم تحويل الراتب بنجاح وتجميد كشفه النهائي");
+             window.setTimeout(() => location.reload(), 700);
+           } catch (error) {
+             console.error("[salary-review] transfer failed", error);
+             notify(error.message || "تعذر تنفيذ التحويل");
+             confirmButton.disabled = false;
+             confirmButton.textContent = "دفع";
+           }
+         });
+         actions.append(postponeButton, confirmButton);
+       }
     } catch (error) {
       console.error("[salary-review] generated salary review failed", error);
       const errorBody = overlay.querySelector(".dhd-generated-review-body");
@@ -482,6 +508,7 @@
   function enhanceSalaryReview() {
     if (!location.pathname.includes("/salaries")) return;
     addStandaloneReviewButtons();
+    addSalaryDetailsButtons();
     addGeneratedSalaryGuards();
     decoratePaymentDialog();
   }
@@ -669,6 +696,14 @@
       clickedButton?.getAttribute("title")?.trim() ||
       "";
     const isPostpone = clickedButton && /^(تأجيل|تأجيل الدفع|تأجيل الراتب|Postpone)$/i.test(label);
+    const isPdfAction = clickedButton && /^(طباعة|طباعة الكشف|طباعة كشف الراتب|كشف PDF|كشف الراتب|print|print payslip|bulletin)$/i.test(label);
+    if (isPdfAction && location.pathname.includes("/salaries")) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      void showGeneratedSalaryReview(clickedButton);
+      return;
+    }
     // The React salary page already owns the review and payment flow. Never
     // intercept those buttons here: doing so prevents its modal mutation and
     // turns a normal payment click into a second, fragile review implementation.

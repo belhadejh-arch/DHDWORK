@@ -7,47 +7,6 @@ import crypto from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 
-// ─── Short-lived PDF download tokens ─────────────────────────────────────────
-// Allows window.open(pdfUrl) to work without relying on cookies or auth headers.
-// Tokens are valid for 2 minutes and single-use.
-const _pdfTokens = new Map<string, { salaryId: number; expiresAt: number }>();
-
-function issuePdfToken(salaryId: number): string {
-  const token = crypto.randomBytes(16).toString('hex');
-  _pdfTokens.set(token, { salaryId, expiresAt: Date.now() + 120_000 });
-  // Prune expired entries
-  const now = Date.now();
-  for (const [t, v] of _pdfTokens) { if (v.expiresAt < now) _pdfTokens.delete(t); }
-  return token;
-}
-
-function consumePdfToken(token: string | undefined, salaryId: number): boolean {
-  if (!token) return false;
-  const entry = _pdfTokens.get(token);
-  if (!entry || entry.salaryId !== salaryId || entry.expiresAt < Date.now()) return false;
-  _pdfTokens.delete(token); // single-use
-  return true;
-}
-
-const _previewPdfTokens = new Map<string, { employeeId: number; month: string; year: number; expiresAt: number }>();
-
-function issuePreviewPdfToken(employeeId: number, month: string, year: number): string {
-  const token = crypto.randomBytes(16).toString('hex');
-  _previewPdfTokens.set(token, { employeeId, month, year, expiresAt: Date.now() + 120_000 });
-  const now = Date.now();
-  for (const [t, v] of _previewPdfTokens) { if (v.expiresAt < now) _previewPdfTokens.delete(t); }
-  return token;
-}
-
-function consumePreviewPdfToken(token: string | undefined): { employeeId: number; month: string; year: number } | null {
-  if (!token) return null;
-  const entry = _previewPdfTokens.get(token);
-  if (!entry || entry.expiresAt < Date.now()) return null;
-  _previewPdfTokens.delete(token);
-  return { employeeId: entry.employeeId, month: entry.month, year: entry.year };
-}
-// ─────────────────────────────────────────────────────────────────────────────
-
 import {
   getAdminByEmail,
   getAdminById,
@@ -254,12 +213,18 @@ apiRouter.post('/auth/login', async (req, res) => {
   if (admin) {
     const pwdStr = String(password || '').trim();
     const hashed = crypto.createHash('sha256').update(pwdStr).digest('hex');
+    const isLegacyPlaintext = Boolean(pwdStr) && admin.passwordHash === pwdStr;
     const isPasswordCorrect = Boolean(pwdStr) && (
-      admin.passwordHash === pwdStr ||
+      isLegacyPlaintext ||
       admin.passwordHash === hashed
     );
 
     if (isPasswordCorrect) {
+      // Keep legacy accounts working without leaving their password in clear
+      // text after the first successful login.
+      if (isLegacyPlaintext) {
+        await updateAdmin(Number(admin.id), { passwordHash: hashed });
+      }
       const token = await createSession('admin', Number(admin.id));
       res.cookie('dhd_admin_token', token, sessionCookieOptions());
       return res.json({
@@ -1005,7 +970,7 @@ async function requireSalaryAccess(req: express.Request, res: express.Response, 
   return { ctx, salary };
 }
 
-function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>, pdfUrl?: string) {
+function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
   if (!data) return null;
   return {
     salary: data.salary,
@@ -1018,15 +983,11 @@ function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>, pd
     vacationRequests: data.vacationRequests || [],
     bonuses: data.bonuses,
     summary: data.summary,
-    pdfUrl,
   };
 }
 
 function toSalaryDetailsPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
-  const payload = toPayslipPayload(data);
-  if (!payload) return null;
-  const { pdfUrl: _pdfUrl, ...details } = payload;
-  return details;
+  return toPayslipPayload(data);
 }
 
 async function getSalaryForPeriod(employeeId: number, month: unknown, year: unknown) {
@@ -1046,8 +1007,6 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
   if (!complete) return null;
   const payload = toPayslipPayload(complete);
   const summary = complete.summary;
-  const previewToken = issuePreviewPdfToken(employeeId, normalizedMonth, numericYear);
-  const pdfToken = complete.salary?.id != null ? issuePdfToken(Number(complete.salary.id)) : previewToken;
   return {
     ...payload,
     ...summary,
@@ -1066,9 +1025,6 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
     previewState: complete.salary.status === 'paid' || complete.salary.status === 'received'
       ? 'paid'
       : 'review_before_payment',
-    previewPdfUrl: complete.salary?.id != null
-      ? `/api/salaries/${complete.salary.id}/pdf?t=${pdfToken}`
-      : `/api/salaries/preview/pdf?employeeId=${employeeId}&month=${encodeURIComponent(normalizedMonth)}&year=${numericYear}&t=${previewToken}`,
   };
 }
 
@@ -1124,26 +1080,6 @@ apiRouter.get('/salaries/preview', async (req, res) => {
   }
 });
 
-apiRouter.get('/salaries/preview/pdf', async (req, res) => {
-  const tokenOk = consumePreviewPdfToken(req.query.t as string | undefined);
-  let employeeId = tokenOk ? tokenOk.employeeId : Number(req.query.employeeId);
-  let month = tokenOk ? tokenOk.month : String(req.query.month || '').padStart(2, '0');
-  let year = tokenOk ? tokenOk.year : Number(req.query.year);
-
-  if (!tokenOk) {
-    if (!await requireAdmin(req, res)) return;
-  }
-
-  if (!Number.isInteger(employeeId) || employeeId <= 0 ||
-      !/^(0[1-9]|1[0-2])$/.test(month) ||
-      !Number.isInteger(year) || year < 2000 || year > 2200) {
-    return res.status(400).json({ message: 'بيانات فترة الراتب غير صالحة' });
-  }
-  const data = await getSalaryPreviewData(employeeId, month, year);
-  if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
-  return sendPayslipPdf(res, data, req.query.download === '1');
-});
-
 apiRouter.post('/salaries/single', async (req, res) => {
   if (!await requireAdmin(req, res)) return;
   const employeeId = Number(req.body?.employeeId);
@@ -1185,20 +1121,6 @@ apiRouter.get('/salaries/:id/details', async (req, res) => {
   const result = await requireSalaryAccess(req, res, Number(req.params.id));
   if (!result) return;
   const data = toSalaryDetailsPayload(await getSalaryPdfData(Number(req.params.id)));
-  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
-  return res.json(data);
-});
-
-// JSON payslip data used by the admin and employee print views.
-// Keep this endpoint separate from the printable HTML endpoint so the
-// browser-side renderer can produce the same professional document in both
-// account types.
-apiRouter.get('/salaries/:id/payslip', async (req, res) => {
-  const ctx = await getAuthContext(req);
-  if (ctx?.userType !== 'admin') return res.status(401).json({ message: 'يجب تسجيل الدخول كمسؤول أولاً' });
-  const salaryId = Number(req.params.id);
-  const token = issuePdfToken(salaryId);
-  const data = toPayslipPayload(await getSalaryPdfData(salaryId), `/api/salaries/${salaryId}/pdf?t=${token}`);
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
 });
@@ -1272,20 +1194,6 @@ async function postponeSalary(req: express.Request, res: express.Response) {
 
 apiRouter.post('/salaries/:id/postpone', postponeSalary);
 apiRouter.patch('/salaries/:id/postpone', postponeSalary);
-
-// PDF payslip — a real PDF stream that can be opened, downloaded, and printed
-apiRouter.get('/salaries/:id/pdf', async (req, res) => {
-  const salaryId = Number(req.params.id);
-  // Accept a short-lived token so window.open() works without relying on cookies
-  const tokenOk = consumePdfToken(req.query.t as string | undefined, salaryId);
-  if (!tokenOk) {
-    const access = await requireSalaryAccess(req, res, salaryId);
-    if (!access) return;
-  }
-  const data = await getSalaryPdfData(salaryId);
-  if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
-  return sendPayslipPdf(res, data, req.query.download === '1');
-});
 
 // Create notification — admin only
 apiRouter.post('/notifications', async (req, res) => {
@@ -1649,7 +1557,10 @@ apiRouter.get('/employee/me', async (req, res) => {
   return res.json(ctx.employee);
 });
 
-apiRouter.post('/employee/auth/logout', (req, res) => {
+apiRouter.post('/employee/auth/logout', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '').trim() || req.cookies?.employee_token || '';
+  await deleteSession(token);
   res.clearCookie('employee_token');
   return res.json({ success: true });
 });
@@ -1734,15 +1645,8 @@ async function getEmployeePayslip(req: express.Request, res: express.Response) {
     const preview = await getSalaryPreviewData(employeeId, month, year);
     if (!preview) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
 
-    const salaryId = preview.salary?.id != null ? Number(preview.salary.id) : 0;
-    const token = salaryId
-      ? issuePdfToken(salaryId)
-      : issuePreviewPdfToken(employeeId, month, year);
     const data = toPayslipPayload(
       preview,
-      salaryId
-        ? `/api/employee/salaries/${salaryId}/pdf?t=${token}`
-        : `/api/salaries/preview/pdf?employeeId=${employeeId}&month=${month}&year=${year}&t=${token}`,
     );
     if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
     return res.json(data);
@@ -1764,28 +1668,8 @@ apiRouter.get('/employee/salaries/:id/details', async (req, res) => {
   return res.json(data);
 });
 
-async function getEmployeePayslipPdf(req: express.Request, res: express.Response) {
-  const salaryId = Number(req.params.id);
-  // Accept a short-lived token so window.open() works without relying on cookies
-  const tokenOk = consumePdfToken(req.query.t as string | undefined, salaryId);
-  if (!tokenOk) {
-    const ctx = await getAuthContext(req);
-    if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-    const data = await getSalaryPdfData(salaryId).catch(() => null);
-    if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
-    if (data.salary && Number(data.salary.employeeId) !== Number(ctx.employee.id)) {
-      return res.status(403).json({ message: 'غير مصرح لك بعرض هذا الكشف' });
-    }
-    return sendPayslipPdf(res, data, req.query.download === '1');
-  }
-  const data = await getSalaryPdfData(salaryId);
-  if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
-  return sendPayslipPdf(res, data, req.query.download === '1');
-}
-
 // The imported employee bundle prefixes all of its calls with /api.
 apiRouter.get('/employee/salaries/:month/payslip', getEmployeePayslip);
-apiRouter.get('/employee/salaries/:id/pdf', getEmployeePayslipPdf);
 apiRouter.post('/employee/salaries/:id/receive', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
@@ -1959,9 +1843,6 @@ app.delete('/employee/notifications', async (req, res) => {
 app.get('/employee/salaries', getEmployeeSalaries);
 
 app.get('/employee/salaries/:month/payslip', getEmployeePayslip);
-
-// Employee PDF payslip by salary ID
-app.get('/employee/salaries/:id/pdf', getEmployeePayslipPdf);
 
 app.post('/employee/salaries/:id/receive', async (req, res) => {
   const ctx = await getAuthContext(req);
@@ -2152,6 +2033,10 @@ function pdfFontPath(bold = false) {
 }
 
 function sendPayslipPdf(res: express.Response, data: any, download = false) {
+  // PDF payslips are intentionally disabled. Salary data is served only as
+  // authenticated PostgreSQL-backed HTML/JSON details inside the application.
+  return res.status(410).json({ message: 'تم إيقاف إنشاء ملفات PDF لكشف الراتب' });
+  /*
   const { salary, employee, summary } = data;
   const isPaid = salary.status === 'paid' || salary.status === 'received';
   const employeeName = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
@@ -2392,6 +2277,7 @@ function sendPayslipPdf(res: express.Response, data: any, download = false) {
   );
   doc.end();
   return res;
+  */
 }
 
 // ─── Payslip HTML builder ──────────────────────────────────────────────────
