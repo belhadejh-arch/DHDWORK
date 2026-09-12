@@ -17,11 +17,22 @@
 
 ## Render Deployment
 
-- Build command: `pnpm install --frozen-lockfile --prod=false && pnpm run build`
-- Start command: `pnpm start`
+- Backend service: `dhd-livraison`
+- Build command: `pnpm install --frozen-lockfile --prod=false && pnpm --filter @workspace/api-server run build`
+- Start command: `pnpm --filter @workspace/api-server run start`
 - Health check path: `/healthz`
 - Required environment variable: `DATABASE_URL`
+- Set `FRONTEND_URL` on Render to the production Vercel URL (multiple URLs may be comma-separated).
 - The repository includes `render.yaml` with the same web-service configuration.
+
+## Vercel Frontend Deployment
+
+- Root directory: repository root
+- Install command: `pnpm install --frozen-lockfile --prod=false`
+- Build command: `pnpm --filter @workspace/dhd-livraison run build`
+- Output directory: `artifacts/dhd-livraison/dist/public`
+- `vercel.json` proxies `/api/*` and `/healthz` to the Render API, so the browser uses same-origin relative requests and session cookies continue to work.
+- If the Render service URL changes, update the Render destination in `vercel.json` before redeploying Vercel.
 
 ## Stack
 

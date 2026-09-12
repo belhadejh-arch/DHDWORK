@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "installCommand": "pnpm install --frozen-lockfile --prod=false",
   "buildCommand": "pnpm --filter @workspace/dhd-livraison run build",
   "outputDirectory": "artifacts/dhd-livraison/dist/public",

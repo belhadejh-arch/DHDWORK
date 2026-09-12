@@ -92,9 +92,29 @@ import {
 
 export const app = express();
 
+const configuredFrontendOrigins = (process.env.FRONTEND_URL ?? '')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: true,
+    origin: (requestOrigin, callback) => {
+      // Requests without an Origin header include Render health checks and
+      // server-to-server calls. When FRONTEND_URL is not configured, keep
+      // the existing development-friendly behavior; once it is configured,
+      // only the listed Vercel origin(s) may use credentialed CORS.
+      if (
+        !requestOrigin ||
+        configuredFrontendOrigins.length === 0 ||
+        configuredFrontendOrigins.includes(requestOrigin)
+      ) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
     credentials: true,
   })
 );
