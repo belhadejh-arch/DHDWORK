@@ -68,7 +68,6 @@
   function revalidate() {
     if (!isAdminSurface() || verifying || !localStorage.getItem(TOKEN_KEY)) return;
     var profile = readProfile();
-    if (!profile) return;
     verifying = true;
     var controller = new AbortController();
     var timeout = window.setTimeout(function () { controller.abort(); }, 7000);
@@ -146,6 +145,11 @@
     }
     if (path === '/api/auth/logout') {
       clearProfile();
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+      } catch (error) {
+        // Ignore unavailable storage; the server-side session is still revoked.
+      }
     }
     if (path === '/api/auth/login' || path === '/api/auth/login/qr') {
       result.then(function (response) {

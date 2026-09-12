@@ -194,6 +194,7 @@ async function getAuthContext(req: express.Request) {
 function sessionCookieOptions() {
   return {
     httpOnly: true,
+    path: '/',
     sameSite: 'lax' as const,
     secure: process.env.NODE_ENV === 'production',
     // Keep the browser session across restarts. The API still verifies the
@@ -388,8 +389,8 @@ apiRouter.post('/auth/logout', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '').trim() || req.cookies?.dhd_admin_token || req.cookies?.employee_token || '';
   await deleteSession(token);
-  res.clearCookie('dhd_admin_token');
-  res.clearCookie('employee_token');
+  res.clearCookie('dhd_admin_token', { path: '/' });
+  res.clearCookie('employee_token', { path: '/' });
   res.json({ success: true, message: 'تم تسجيل الخروج بنجاح' });
 });
 
@@ -1576,7 +1577,7 @@ apiRouter.post('/employee/auth/logout', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '').trim() || req.cookies?.employee_token || '';
   await deleteSession(token);
-  res.clearCookie('employee_token');
+  res.clearCookie('employee_token', { path: '/' });
   return res.json({ success: true });
 });
 
@@ -1815,8 +1816,11 @@ app.get('/employee/me', async (req, res) => {
   return res.json(ctx.employee);
 });
 
-app.post('/employee/auth/logout', (req, res) => {
-  res.clearCookie('employee_token');
+app.post('/employee/auth/logout', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '').trim() || req.cookies?.employee_token || '';
+  await deleteSession(token);
+  res.clearCookie('employee_token', { path: '/' });
   res.json({ success: true });
 });
 

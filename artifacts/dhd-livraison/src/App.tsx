@@ -232,8 +232,13 @@ function useEmployeeSession() {
   }, [navigate]);
 
   const logout = useCallback(async () => {
+    const token = window.localStorage.getItem(EMPLOYEE_TOKEN_KEY);
     clearSession();
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => undefined);
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    }).catch(() => undefined);
     navigate('/portal/login', { replace: true });
   }, [clearSession, navigate]);
 
