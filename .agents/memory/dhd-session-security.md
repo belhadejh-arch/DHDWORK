@@ -14,3 +14,9 @@ Active DHD sessions use a long rolling lifetime so employees and admins do not r
 **Why:** The business requires accounts to remain open across browser and service restarts, while stale or disabled identities must still lose access.
 
 **How to apply:** Persist the returned token in browser storage, renew the server-side expiry on authenticated use, keep cookies long-lived, and distinguish session rejection from temporary connectivity errors in the client.
+
+WebView APKs may reopen `employee-login.html` as their initial URL; that entry page must validate `/api/auth/me` and redirect remembered employees to `/portal` before asking for credentials.
+
+**Why:** A WebView can preserve the session correctly while still launching the login HTML page on every app start, which otherwise looks like a forced logout.
+
+**How to apply:** Keep the login-page recovery path cookie-aware, preserve storage during network failures, and clear it only after an explicit invalid-session response or manual logout.

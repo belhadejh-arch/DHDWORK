@@ -362,6 +362,41 @@
   let scanInterval = null;
   let scanning = false;
 
+  // AppCreator/WebView may open this login page as the initial URL every time.
+  // Restore the existing server session before showing a new-login flow.
+  async function restoreExistingSession() {
+    const token = localStorage.getItem('dhd_employee_token') || localStorage.getItem('employee_token') || '';
+    try {
+      const response = await fetch(API + '/api/auth/me', {
+        method: 'GET',
+        credentials: 'include',
+        headers: token ? { Authorization: 'Bearer ' + token } : {}
+      });
+      const data = await response.json().catch(() => ({}));
+      if (
+        response.ok &&
+        data &&
+        data.isAuthenticated &&
+        data.userType === 'employee' &&
+        data.employee
+      ) {
+        window.location.replace('/portal');
+        return;
+      }
+
+      // Only an explicit server rejection clears the remembered client token.
+      // A WebView cold start or a sleeping API must not log the employee out.
+      if (response.status === 401 || response.status === 403 || (response.ok && data && data.isAuthenticated === false)) {
+        localStorage.removeItem('dhd_employee_token');
+        localStorage.removeItem('employee_token');
+      }
+    } catch {
+      // Keep the form available and preserve all remembered session data.
+    }
+  }
+
+  restoreExistingSession();
+
   // ---- Tabs ----
   function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach((b, i) => {

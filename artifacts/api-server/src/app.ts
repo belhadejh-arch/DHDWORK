@@ -150,42 +150,55 @@ apiRouter.get('/status', (req, res) => {
 // Helper to resolve current authenticated user from request token/headers
 async function getAuthContext(req: express.Request) {
   const authHeader = req.headers.authorization || '';
-  const token = authHeader.replace('Bearer ', '').trim() || req.cookies?.dhd_admin_token || req.cookies?.employee_token || '';
-  const session = await getSession(token);
-  if (!session) return null;
+  const bearerToken = authHeader.replace('Bearer ', '').trim();
+  const candidateTokens = Array.from(new Set([
+    bearerToken,
+    req.cookies?.dhd_admin_token || '',
+    req.cookies?.employee_token || '',
+  ].filter(Boolean)));
 
-  if (session.userType === 'employee') {
-    const employee = await getEmployeeById(Number(session.userId));
-    if (employee && employee.isActive !== false && employee.status !== 'inactive') {
-      return { userType: 'employee' as const, employee };
-    }
-    await deleteSession(token);
-    return null;
-  }
+  // WebViews can retain a stale localStorage token while keeping the
+  // persistent cookie. Try every server-issued credential so a stale bearer
+  // token cannot force a valid remembered cookie back to the login screen.
+  for (const token of candidateTokens) {
+    const session = await getSession(token);
+    if (!session) continue;
 
-  if (session.userType === 'admin') {
-    let admin = await getAdminById(Number(session.userId));
-    if (!admin) return null;
-    if (!admin.serialNumber) {
-      const provisionedAdmin = await ensureAdminSerial(Number(admin.id));
-      if (!provisionedAdmin) return null;
-      admin = provisionedAdmin;
-    }
-    if (!admin) return null;
-    return {
-      userType: 'admin' as const,
-      admin: {
-        id: admin.id,
-        email: admin.email || null,
-        serialNumber: admin.serialNumber || null,
-        username: admin.username || null,
-        firstName: admin.firstName || '',
-        lastName: admin.lastName || '',
-        phone: admin.phone || null,
-        name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
-        role: 'superadmin'
+    if (session.userType === 'employee') {
+      const employee = await getEmployeeById(Number(session.userId));
+      if (employee && employee.isActive !== false && employee.status !== 'inactive') {
+        return { userType: 'employee' as const, employee };
       }
-    };
+      await deleteSession(token);
+      continue;
+    }
+
+    if (session.userType === 'admin') {
+      let admin = await getAdminById(Number(session.userId));
+      if (!admin) {
+        await deleteSession(token);
+        continue;
+      }
+      if (!admin.serialNumber) {
+        const provisionedAdmin = await ensureAdminSerial(Number(admin.id));
+        if (!provisionedAdmin) continue;
+        admin = provisionedAdmin;
+      }
+      return {
+        userType: 'admin' as const,
+        admin: {
+          id: admin.id,
+          email: admin.email || null,
+          serialNumber: admin.serialNumber || null,
+          username: admin.username || null,
+          firstName: admin.firstName || '',
+          lastName: admin.lastName || '',
+          phone: admin.phone || null,
+          name: `${admin.firstName || ''} ${admin.lastName || ''}`.trim() || admin.username || 'مدير DHD',
+          role: 'superadmin'
+        }
+      };
+    }
   }
 
   return null;

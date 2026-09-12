@@ -145,6 +145,35 @@ function getNotificationCopy() {
 
 const EMPLOYEE_STORAGE_KEY = 'dhd_employee_session';
 const EMPLOYEE_TOKEN_KEY = 'dhd_employee_token';
+const LEGACY_EMPLOYEE_TOKEN_KEY = 'employee_token';
+
+function readEmployeeToken(): string {
+  try {
+    return window.localStorage.getItem(EMPLOYEE_TOKEN_KEY)
+      || window.localStorage.getItem(LEGACY_EMPLOYEE_TOKEN_KEY)
+      || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeEmployeeToken(token: string) {
+  try {
+    window.localStorage.setItem(EMPLOYEE_TOKEN_KEY, token);
+    window.localStorage.setItem(LEGACY_EMPLOYEE_TOKEN_KEY, token);
+  } catch {
+    // The persistent httpOnly cookie remains the source of truth.
+  }
+}
+
+function clearEmployeeToken() {
+  try {
+    window.localStorage.removeItem(EMPLOYEE_TOKEN_KEY);
+    window.localStorage.removeItem(LEGACY_EMPLOYEE_TOKEN_KEY);
+  } catch {
+    // Ignore unavailable WebView storage; logout still revokes the server session.
+  }
+}
 
 function readStoredEmployee(): Employee | null {
   try {
@@ -161,15 +190,19 @@ function useEmployeeSession() {
   const [isChecking, setIsChecking] = useState(() => !readStoredEmployee());
 
   const clearSession = useCallback(() => {
-    window.localStorage.removeItem(EMPLOYEE_STORAGE_KEY);
-    window.localStorage.removeItem('dhd_employee_token');
+    try {
+      window.localStorage.removeItem(EMPLOYEE_STORAGE_KEY);
+    } catch {
+      // The server-side session is still authoritative.
+    }
+    clearEmployeeToken();
     setEmployee(null);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     const stored = readStoredEmployee();
-    const token = window.localStorage.getItem(EMPLOYEE_TOKEN_KEY);
+    const token = readEmployeeToken();
 
     fetch('/api/auth/me', {
       credentials: 'include',
@@ -227,12 +260,12 @@ function useEmployeeSession() {
 
     setEmployee(data.employee);
     window.localStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(data.employee));
-    if (data.token) window.localStorage.setItem(EMPLOYEE_TOKEN_KEY, data.token);
+    if (data.token) writeEmployeeToken(data.token);
     navigate('/portal', { replace: true });
   }, [navigate]);
 
   const logout = useCallback(async () => {
-    const token = window.localStorage.getItem(EMPLOYEE_TOKEN_KEY);
+    const token = readEmployeeToken();
     clearSession();
     await fetch('/api/auth/logout', {
       method: 'POST',
@@ -1168,7 +1201,7 @@ function SalarySection() {
 }
 
 function employeeAuthHeaders(): Record<string, string> {
-  const token = window.localStorage.getItem(EMPLOYEE_TOKEN_KEY);
+  const token = readEmployeeToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
