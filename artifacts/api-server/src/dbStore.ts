@@ -884,8 +884,9 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
   };
 }
 
-// Get full salary data for a persisted PDF payslip.
-export async function getSalaryPdfData(salaryId: number) {
+// Get the complete PostgreSQL-backed salary details for the internal statement
+// page. Paid rows use their immutable snapshot; open rows use live records.
+export async function getSalaryDetailsData(salaryId: number) {
   const salary = await getSalaryById(salaryId);
   if (!salary) return null;
   if ((salary.status === "paid" || salary.status === "received") && salary.snapshot) {
@@ -917,7 +918,7 @@ export async function getSalaryPreviewData(employeeId: number, month: string, ye
   // missing; callers can then show the explicit empty-period state.
   if (!existing) return null;
   if (existing?.status === "paid" || existing?.status === "received") {
-    const paidData = await getSalaryPdfData(Number(existing.id));
+    const paidData = await getSalaryDetailsData(Number(existing.id));
     if (paidData) return paidData;
   }
   return calculateSalaryPeriodData(existing, emp);
@@ -937,7 +938,7 @@ async function refreshOpenSalaryCalculations(employeeId: number) {
       bonuses: null,
       otherDeductions: null,
     }).where(eq(salaries.id, Number(record.id)));
-    const calculation = await getSalaryPdfData(Number(record.id));
+    const calculation = await getSalaryDetailsData(Number(record.id));
     const summary = calculation?.summary;
     if (!summary) continue;
     await db.update(salaries).set({
@@ -1968,7 +1969,7 @@ export async function createSalary(data: any) {
   if (data.absentDays != null) values.absentDays = Number(data.absentDays);
   const [record] = await db.insert(salaries).values(values).returning();
   if (!record) return null;
-  const calculation = await getSalaryPdfData(Number(record.id));
+  const calculation = await getSalaryDetailsData(Number(record.id));
   const summary = calculation?.summary;
   if (!summary) return { ...record, employeeName: `${emp.firstName} ${emp.lastName}` };
   const [updated] = await db.update(salaries).set({

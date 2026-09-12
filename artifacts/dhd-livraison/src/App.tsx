@@ -756,6 +756,7 @@ type SalaryDetailsPayload = {
     presentDays?: number | null;
     absentDays?: number | null;
     workedHours?: number | null;
+    overtimeHours?: number | null;
     lateDays?: number | null;
     lateMinutes?: number | null;
     lateDeduction?: number | null;
@@ -835,7 +836,7 @@ function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
     let cancelled = false;
     setLoading(true);
     setError('');
-    fetch(`/api/salaries/${encodeURIComponent(params.id)}/details`, {
+    fetch(`/api/employee/salaries/${encodeURIComponent(params.id)}/details`, {
       credentials: 'include',
       headers: employeeAuthHeaders(),
     })
@@ -895,6 +896,9 @@ function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
             <section className="dhd-section-card dhd-salary-details-summary">
               <div className="dhd-salary-details-meta">
                 <InfoCard icon={<UserRound />} label="اسم الموظف" value={`${details?.employee?.firstName || employee.firstName || ''} ${details?.employee?.lastName || employee.lastName || ''}`.trim()} />
+                <InfoCard icon={<Hash />} label="الرقم التسلسلي" value={details?.employee?.serialNumber || employee.serialNumber || '—'} />
+                <InfoCard icon={<BadgeCheck />} label="المنصب" value={details?.employee?.position || employee.position || '—'} />
+                <InfoCard icon={<Building2 />} label="المكتب" value={details?.employee?.officeName || employee.officeName || '—'} />
                 <InfoCard icon={<CalendarDays />} label="الشهر والفترة" value={salaryMonthLabel(salary.month, salary.year)} />
                 <InfoCard icon={<WalletCards />} label="الراتب الأساسي" value={salaryAmount(summary.baseSalary)} />
                 <InfoCard icon={<WalletCards />} label="حالة الكشف" value={salary.status === 'received' ? 'تم الاستلام' : salary.status === 'paid' ? 'مدفوع' : salary.status === 'postponed' ? 'مؤجل' : 'قيد المراجعة'} />
@@ -983,7 +987,7 @@ function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
               title="المكافآت والإضافات الأخرى"
               headers={['التاريخ', 'النوع / السبب', 'المبلغ']}
               rows={[
-                ...(Number(summary.overtimeBonus || 0) > 0 ? [['وقت إضافي', `${summary.workedHours || 0} ساعة عمل مسجلة`, `+ ${salaryAmount(summary.overtimeBonus)}`]] : []),
+                ...(Number(summary.overtimeBonus || 0) > 0 ? [['وقت إضافي', `${summary.overtimeHours || 0} ساعة إضافية`, `+ ${salaryAmount(summary.overtimeBonus)}`]] : []),
                 ...(details?.bonuses || []).map((bonus) => [salaryDate(bonus.date || bonus.createdAt), bonus.reason || bonus.notes || 'مكافأة', `+ ${salaryAmount(bonus.amount)}`]),
               ]}
               empty="لا توجد مكافآت أو إضافات أخرى"

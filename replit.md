@@ -13,7 +13,7 @@
 - Push Notifications: Web Push requires the Replit Secrets `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`; the UI registers `/sw.js` and `/api/push/subscribe` after the user grants permission.
 - إعلانات الأدمن: `/announcements` لإدارة الإعلانات، و`/api/announcements` و`/api/employee/announcements` لمساراتها. تحفظ في جداول PostgreSQL `announcements` و`announcement_recipients` و`announcement_reads`، مع تسجيل قراءة كل موظف.
 - Employee entry point: `/employee-login.html`; after login, the existing portal at `/portal` loads the employee's attendance, check-out, and violations.
-- Payslips: admin PDF endpoints are `/api/salaries/:id/pdf` (open) and `/api/salaries/:id/pdf?download=1` (download); employee endpoints are `/employee/salaries/:id/pdf` and the same `download=1` variant. Both return a real `application/pdf` document built from PostgreSQL data.
+- Salary statements: admin and employee details are loaded as authenticated PostgreSQL-backed internal pages through `/api/salaries/:id/details` and `/api/employee/salaries/:id/details`. PDF generation is not used.
 
 ## Render Deployment
 

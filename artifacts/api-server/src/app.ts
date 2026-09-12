@@ -4,7 +4,6 @@ import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 
 import {
@@ -35,7 +34,7 @@ import {
   rotateAdminQr,
   ensureAdminSerial,
   updateAdmin,
-  getSalaryPdfData,
+  getSalaryDetailsData,
   getSalaryPreviewData,
   listAttendance,
   recordAttendance,
@@ -970,7 +969,7 @@ async function requireSalaryAccess(req: express.Request, res: express.Response, 
   return { ctx, salary };
 }
 
-function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
+function toSalaryDetailsPayload(data: Awaited<ReturnType<typeof getSalaryDetailsData>>) {
   if (!data) return null;
   return {
     salary: data.salary,
@@ -984,10 +983,6 @@ function toPayslipPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
     bonuses: data.bonuses,
     summary: data.summary,
   };
-}
-
-function toSalaryDetailsPayload(data: Awaited<ReturnType<typeof getSalaryPdfData>>) {
-  return toPayslipPayload(data);
 }
 
 async function getSalaryForPeriod(employeeId: number, month: unknown, year: unknown) {
@@ -1005,7 +1000,7 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
   const numericYear = Number(year);
   const complete = await getSalaryPreviewData(employeeId, normalizedMonth, numericYear);
   if (!complete) return null;
-  const payload = toPayslipPayload(complete);
+  const payload = toSalaryDetailsPayload(complete);
   const summary = complete.summary;
   return {
     ...payload,
@@ -1115,12 +1110,12 @@ apiRouter.get('/salaries/:id', async (req, res) => {
 });
 
 // Shared PostgreSQL-backed JSON details used by both ADMIN and EMPLOYEE.
-// The calculation/snapshot selection is kept in getSalaryPdfData so this
+// The calculation/snapshot selection is kept in getSalaryDetailsData so this
 // endpoint cannot drift from the existing salary and payment calculations.
 apiRouter.get('/salaries/:id/details', async (req, res) => {
   const result = await requireSalaryAccess(req, res, Number(req.params.id));
   if (!result) return;
-  const data = toSalaryDetailsPayload(await getSalaryPdfData(Number(req.params.id)));
+  const data = toSalaryDetailsPayload(await getSalaryDetailsData(Number(req.params.id)));
   if (!data) return res.status(404).json({ message: 'كشف الراتب غير موجود' });
   return res.json(data);
 });
@@ -1645,7 +1640,7 @@ async function getEmployeePayslip(req: express.Request, res: express.Response) {
     const preview = await getSalaryPreviewData(employeeId, month, year);
     if (!preview) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
 
-    const data = toPayslipPayload(
+    const data = toSalaryDetailsPayload(
       preview,
     );
     if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
@@ -1659,13 +1654,18 @@ async function getEmployeePayslip(req: express.Request, res: express.Response) {
 apiRouter.get('/employee/salaries/:id/details', async (req, res) => {
   const ctx = await getAuthContext(req);
   if (ctx?.userType !== 'employee') return res.status(401).json({ message: 'يجب تسجيل الدخول أولاً' });
-  const salary = await getSalaryById(Number(req.params.id));
-  if (!salary || Number(salary.employeeId) !== Number(ctx.employee.id)) {
-    return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
+  try {
+    const salary = await getSalaryById(Number(req.params.id));
+    if (!salary || Number(salary.employeeId) !== Number(ctx.employee.id)) {
+      return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
+    }
+    const data = toSalaryDetailsPayload(await getSalaryDetailsData(Number(req.params.id)));
+    if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
+    return res.json(data);
+  } catch (error) {
+    console.error('employee salary details failed:', error);
+    return res.status(500).json({ message: 'تعذر قراءة تفاصيل كشف الراتب من قاعدة البيانات' });
   }
-  const data = toSalaryDetailsPayload(await getSalaryPdfData(Number(req.params.id)));
-  if (!data) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
-  return res.json(data);
 });
 
 // The imported employee bundle prefixes all of its calls with /api.
@@ -1993,50 +1993,9 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
 
 app.post('/employee/attendance/:action', employeeAttendanceAction);
 
-const PDF_FONT_REGULAR = '/usr/share/fonts/truetype/freefont/FreeSans.ttf';
-const PDF_FONT_BOLD = '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf';
-const PDF_LOGO_CANDIDATES = [
-  path.resolve(process.cwd(), 'artifacts/dhd-livraison/public/assets/1000034141-removebg-preview_1785699198526-C-34cSbP.png'),
-  path.resolve(process.cwd(), 'attached_assets/1000034141-removebg-preview_1786535542080.png'),
-  path.resolve(process.cwd(), 'public/assets/1000034141-removebg-preview_1785699198526-C-34cSbP.png'),
-];
-
-function pdfText(value: unknown, fallback = '—') {
-  const text = String(value ?? '').trim();
-  return text || fallback;
-}
-
-function pdfAmount(value: unknown) {
-  const amount = Number(value || 0);
-  return `${Number.isFinite(amount) ? amount.toLocaleString('ar-DZ') : '0'} دج`;
-}
-
-function pdfDate(value: unknown) {
-  if (!value) return '—';
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? pdfText(value) : date.toLocaleDateString('ar-DZ');
-}
-
-function pdfMonth(month: unknown, year: unknown) {
-  const months: Record<string, string> = {
-    '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل',
-    '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس',
-    '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر',
-  };
-  const key = String(month ?? '').padStart(2, '0');
-  return `${months[key] || pdfText(month)} ${pdfText(year)}`;
-}
-
-function pdfFontPath(bold = false) {
-  const candidate = bold ? PDF_FONT_BOLD : PDF_FONT_REGULAR;
-  return fs.existsSync(candidate) ? candidate : bold ? 'Helvetica-Bold' : 'Helvetica';
-}
-
-function sendPayslipPdf(res: express.Response, data: any, download = false) {
-  // PDF payslips are intentionally disabled. Salary data is served only as
-  // authenticated PostgreSQL-backed HTML/JSON details inside the application.
-  return res.status(410).json({ message: 'تم إيقاف إنشاء ملفات PDF لكشف الراتب' });
-  /*
+/*
+  Legacy PDF implementation intentionally remains disabled. Salary data is
+  served only as authenticated PostgreSQL-backed JSON inside the application.
   const { salary, employee, summary } = data;
   const isPaid = salary.status === 'paid' || salary.status === 'received';
   const employeeName = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
@@ -2278,133 +2237,6 @@ function sendPayslipPdf(res: express.Response, data: any, download = false) {
   doc.end();
   return res;
   */
-}
-
-// ─── Payslip HTML builder ──────────────────────────────────────────────────
-function buildPayslipHtml(data: any): string {
-  const { salary, employee, summary, violations: viols, advances: advs } = data;
-  const empName = employee ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() : '—';
-  const empSerial = employee?.serialNumber || '—';
-  const officeName = employee?.officeName || '—';
-  const position = employee?.position || '—';
-
-  const monthNames: Record<string, string> = {
-    '01': 'يناير', '02': 'فبراير', '03': 'مارس', '04': 'أبريل',
-    '05': 'مايو', '06': 'يونيو', '07': 'يوليو', '08': 'أغسطس',
-    '09': 'سبتمبر', '10': 'أكتوبر', '11': 'نوفمبر', '12': 'ديسمبر'
-  };
-  const monthStr = monthNames[String(salary.month).padStart(2, '0')] || salary.month;
-  const periodLabel = `${monthStr} ${salary.year}`;
-
-  const fmt = (n: number) => n.toLocaleString('ar-DZ') + ' دج';
-
-  const violRows = (viols || []).map((v: any) =>
-    `<tr><td>${v.violationType || v.type || '—'}</td><td>${v.reason || '—'}</td><td class="amount deduct">${fmt(Number(v.amount || 0))}</td></tr>`
-  ).join('') || '<tr><td colspan="3" class="empty">لا توجد مخالفات</td></tr>';
-
-  const advRows = (advs || []).map((a: any) =>
-    `<tr><td>${new Date(a.createdAt).toLocaleDateString('ar-DZ')}</td><td>${a.reason || '—'}</td><td class="amount deduct">${fmt(Number(a.amount || 0))}</td></tr>`
-  ).join('') || '<tr><td colspan="3" class="empty">لا توجد سلف</td></tr>';
-
-  const statusLabel = salary.status === 'paid' ? '✅ مدفوع' : salary.status === 'postponed' ? '⏸ مؤجل' : '⏳ معلق';
-
-  return `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>كشف راتب – ${empName} – ${periodLabel}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f5f5f5;color:#222;direction:rtl}
-  .page{max-width:800px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.12)}
-  header{background:linear-gradient(135deg,#1a3c6e,#2563eb);color:#fff;padding:28px 32px;display:flex;justify-content:space-between;align-items:center}
-  header h1{font-size:22px;font-weight:700}
-  header .period{font-size:14px;opacity:.85;margin-top:4px}
-  .badge{background:rgba(255,255,255,.2);border-radius:20px;padding:6px 14px;font-size:13px}
-  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #e5e7eb}
-  .info-box{padding:18px 24px;border-left:1px solid #e5e7eb}
-  .info-box:nth-child(2){border-left:none}
-  .info-box label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px}
-  .info-box span{font-size:14px;font-weight:600;color:#111}
-  table{width:100%;border-collapse:collapse}
-  thead th{background:#f9fafb;padding:10px 16px;font-size:12px;color:#6b7280;font-weight:600;text-align:right;border-bottom:1px solid #e5e7eb}
-  tbody td{padding:10px 16px;font-size:13px;border-bottom:1px solid #f3f4f6}
-  .amount{font-weight:700;white-space:nowrap}
-  .deduct{color:#dc2626}
-  .plus{color:#16a34a}
-  .empty{color:#9ca3af;text-align:center;padding:14px;font-style:italic}
-  .section-title{padding:14px 24px 8px;font-size:13px;font-weight:700;color:#374151;background:#f9fafb;border-bottom:1px solid #e5e7eb;border-top:1px solid #e5e7eb}
-  .summary-box{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#e5e7eb;border-top:1px solid #e5e7eb}
-  .sum-cell{background:#fff;padding:16px 20px;text-align:center}
-  .sum-cell label{font-size:11px;color:#6b7280;display:block;margin-bottom:4px}
-  .sum-cell span{font-size:16px;font-weight:700;color:#111}
-  .final-box{background:linear-gradient(135deg,#1a3c6e,#2563eb);color:#fff;padding:20px 32px;display:flex;justify-content:space-between;align-items:center}
-  .final-box .label{font-size:15px;font-weight:600}
-  .final-box .amount{font-size:26px;font-weight:800}
-  .footer{padding:14px 24px;font-size:11px;color:#9ca3af;text-align:center;border-top:1px solid #f3f4f6}
-  .print-btn{display:block;margin:16px auto;padding:10px 28px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;font-family:inherit}
-  @media print{.print-btn{display:none}.page{box-shadow:none;border-radius:0;margin:0}}
-</style>
-</head>
-<body>
-<div class="page">
-  <header>
-    <div>
-      <h1>🏢 DHD Livraison – كشف الراتب</h1>
-      <div class="period">الفترة: ${periodLabel}</div>
-    </div>
-    <div class="badge">${statusLabel}</div>
-  </header>
-
-  <div class="info-grid">
-    <div class="info-box"><label>اسم الموظف</label><span>${empName}</span></div>
-    <div class="info-box"><label>الرقم التسلسلي</label><span>${empSerial}</span></div>
-    <div class="info-box"><label>المنصب</label><span>${position}</span></div>
-    <div class="info-box"><label>المكتب</label><span>${officeName}</span></div>
-  </div>
-
-  <div class="summary-box">
-    <div class="sum-cell"><label>أيام الحضور</label><span>${summary.presentDays}</span></div>
-    <div class="sum-cell"><label>أيام الغياب</label><span>${summary.absentDays}</span></div>
-    <div class="sum-cell"><label>الراتب الأساسي</label><span>${fmt(summary.baseSalary)}</span></div>
-  </div>
-
-  <div class="section-title">المخالفات والخصومات</div>
-  <table>
-    <thead><tr><th>النوع</th><th>السبب</th><th>المبلغ</th></tr></thead>
-    <tbody>${violRows}</tbody>
-  </table>
-
-  <div class="section-title">السلف المعتمدة</div>
-  <table>
-    <thead><tr><th>التاريخ</th><th>السبب</th><th>المبلغ</th></tr></thead>
-    <tbody>${advRows}</tbody>
-  </table>
-
-  <div class="section-title">ملخص الراتب</div>
-  <table>
-    <tbody>
-      <tr><td>الراتب الأساسي</td><td class="amount plus">${fmt(summary.baseSalary)}</td></tr>
-      <tr><td>إجمالي الخصومات (مخالفات)</td><td class="amount deduct">- ${fmt(summary.violationTotal)}</td></tr>
-      <tr><td>إجمالي السلف المستقطعة</td><td class="amount deduct">- ${fmt(summary.advanceTotal)}</td></tr>
-    </tbody>
-  </table>
-
-  <div class="final-box">
-    <span class="label">صافي الراتب النهائي</span>
-    <span class="amount">${fmt(summary.finalSalary)}</span>
-  </div>
-
-  <div class="footer">
-    تاريخ الإصدار: ${new Date().toLocaleDateString('ar-DZ')} &nbsp;|&nbsp; رقم الكشف: #${salary.id}
-    ${salary.paidAt ? `&nbsp;|&nbsp; تاريخ الدفع: ${new Date(salary.paidAt).toLocaleDateString('ar-DZ')}` : ''}
-  </div>
-</div>
-<button class="print-btn" onclick="window.print()">🖨️ طباعة / حفظ PDF</button>
-</body>
-</html>`;
-}
 
 // Static frontend serving if available
 const publicDir = path.resolve(process.cwd(), 'public');

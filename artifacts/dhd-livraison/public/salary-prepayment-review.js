@@ -101,11 +101,29 @@
     );
     const contextText = row?.textContent || button.parentElement?.textContent || "";
     const currentDate = new Date();
-    const period = contextText.match(/(0[1-9]|1[0-2])\s*[\/-]\s*(20\d{2})/) || [
-      "",
-      String(currentDate.getMonth() + 1).padStart(2, "0"),
-      String(currentDate.getFullYear()),
-    ];
+    const monthNames = {
+      يناير: "01", فبراير: "02", مارس: "03", أبريل: "04", مايو: "05",
+      يونيو: "06", يوليو: "07", أغسطس: "08", سبتمبر: "09", أكتوبر: "10",
+      نوفمبر: "11", ديسمبر: "12",
+      janvier: "01", février: "02", mars: "03", avril: "04", mai: "05",
+      juin: "06", juillet: "07", août: "08", septembre: "09",
+      octobre: "10", novembre: "11", décembre: "12",
+      january: "01", february: "02", march: "03", april: "04", may: "05",
+      june: "06", july: "07", august: "08", september: "09",
+      october: "10", november: "11", december: "12",
+    };
+    const numericPeriod = contextText.match(/(0[1-9]|1[0-2])\s*[\/-]\s*(20\d{2})/);
+    const namedMonth = Object.keys(monthNames).find((monthName) =>
+      contextText.toLocaleLowerCase().includes(monthName.toLocaleLowerCase())
+    );
+    const yearMatch = contextText.match(/20\d{2}/);
+    const period = numericPeriod || (namedMonth && yearMatch
+      ? ["", monthNames[namedMonth], yearMatch[0]]
+      : [
+        "",
+        String(currentDate.getMonth() + 1).padStart(2, "0"),
+        String(currentDate.getFullYear()),
+      ]);
     return {
       row,
       employeeLink,
@@ -318,7 +336,12 @@
       if (preview.previewState === "paid" && salary?.status !== "paid" && salary?.status !== "received") {
         throw new Error("تم دفع هذا الراتب بالفعل");
       }
-      const attendanceRecords = Array.isArray(preview.attendanceRecords) ? preview.attendanceRecords : [];
+       const employee = preview.employee || {};
+      const attendanceRecords = Array.isArray(preview.attendance)
+        ? preview.attendance
+        : Array.isArray(preview.attendanceRecords)
+          ? preview.attendanceRecords
+          : [];
       const violations = Array.isArray(preview.violations) ? preview.violations : [];
       const bonuses = Array.isArray(preview.bonuses) ? preview.bonuses : [];
       const advances = Array.isArray(preview.advances) ? preview.advances : [];
@@ -403,6 +426,12 @@
           <strong>قيد المراجعة قبل التحويل</strong>
           <span>الحساب أدناه حي من قاعدة البيانات، ولن يتم تسجيل التحويل إلا بعد الضغط على زر التأكيد النهائي.</span>
         </div>
+         <div class="dhd-generated-review-employee">
+           <div><span>اسم الموظف</span><b>${escapeHtml(`${employee.firstName || ""} ${employee.lastName || ""}`.trim() || employeeLink?.textContent?.trim() || "—")}</b></div>
+           <div><span>الرقم التسلسلي</span><b>${escapeHtml(employee.serialNumber || "—")}</b></div>
+           <div><span>المنصب</span><b>${escapeHtml(employee.position || "—")}</b></div>
+           <div><span>المكتب</span><b>${escapeHtml(employee.officeName || "—")}</b></div>
+         </div>
         <div class="dhd-generated-review-breakdown">
           <div><span>الراتب الأساسي</span><b>${formatAmount(summary.baseSalary)}</b></div>
           <div><span>أيام الحضور</span><b>${summary.presentDays || 0} يوم</b></div>
@@ -612,6 +641,18 @@
       cursor: pointer;
     }
     .dhd-generated-review-body { display: grid; gap: .85rem; }
+    .dhd-generated-review-employee {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: .5rem;
+      border: 1px solid #e2e8f0;
+      border-radius: .75rem;
+      padding: .65rem;
+      background: #f8fafc;
+    }
+    .dhd-generated-review-employee > div { display: grid; gap: .15rem; }
+    .dhd-generated-review-employee span { color: #64748b; font-size: .72rem; }
+    .dhd-generated-review-employee b { color: #1e293b; font-size: .8rem; }
     .dhd-generated-review-loading,
     .dhd-generated-review-error { margin: 1rem 0; color: #64748b; text-align: center; }
     .dhd-generated-review-error { color: #b91c1c; }
@@ -684,6 +725,7 @@
     .dhd-generated-review-confirm:disabled { opacity: .65; cursor: wait; }
     @media (max-width: 640px) {
       .dhd-salary-review-totals { grid-template-columns: 1fr 1fr; }
+      .dhd-generated-review-employee { grid-template-columns: 1fr; }
       .dhd-salary-review-trigger { width: 100%; }
       .dhd-generated-review-actions { grid-template-columns: 1fr; }
     }

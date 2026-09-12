@@ -33,7 +33,6 @@ async function buildAll() {
       "better-sqlite3",
       "sqlite3",
       "canvas",
-      "pdfkit",
       "fontkit",
       "@swc/helpers",
       "bcrypt",
