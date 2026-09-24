@@ -811,6 +811,8 @@ type SalaryDetailsPayload = {
   advances?: Array<{ id: number; amount?: number | string | null; reason?: string | null; requestedAt?: string | null; createdAt?: string | null }>;
   violations?: ViolationRecord[];
   bonuses?: Array<{ id: number; amount?: number | string | null; reason?: string | null; notes?: string | null; date?: string | null; createdAt?: string | null }>;
+  leaveRequests?: Array<{ id: number; leaveType?: string | null; startDate?: string | null; endDate?: string | null; description?: string | null; adminNote?: string | null; status?: string | null }>;
+  vacationRequests?: Array<{ id: number; startDate?: string | null; endDate?: string | null; description?: string | null; adminNote?: string | null; status?: string | null }>;
 };
 
 function salaryAmount(value: unknown) {
@@ -1029,6 +1031,26 @@ function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
                 ...(details?.bonuses || []).map((bonus) => [salaryDate(bonus.date || bonus.createdAt), bonus.reason || bonus.notes || 'مكافأة', `+ ${salaryAmount(bonus.amount)}`]),
               ]}
               empty="لا توجد مكافآت أو إضافات أخرى"
+            />
+
+            <SalaryDetailsTable
+              title="الإجازات والعطل المعتمدة"
+              headers={['النوع', 'من', 'إلى', 'السبب / الملاحظة']}
+              rows={[
+                ...(details?.leaveRequests || []).map((request) => [
+                  request.leaveType || 'إجازة',
+                  salaryDate(request.startDate),
+                  salaryDate(request.endDate || request.startDate),
+                  request.description || request.adminNote || '—',
+                ]),
+                ...(details?.vacationRequests || []).map((request) => [
+                  'عطلة',
+                  salaryDate(request.startDate),
+                  salaryDate(request.endDate || request.startDate),
+                  request.description || request.adminNote || '—',
+                ]),
+              ]}
+              empty="لا توجد إجازات أو عطل معتمدة خلال هذه الفترة"
             />
 
             <section className="dhd-salary-details-final">

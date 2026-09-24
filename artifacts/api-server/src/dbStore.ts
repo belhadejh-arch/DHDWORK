@@ -1997,14 +1997,14 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
     const finalizePayment = () => db.transaction(async (tx: any) => {
       const [locked] = await tx.select().from(salaries)
         .where(eq(salaries.id, Number(id))).for("update").limit(1);
-      if (!locked) return { paid: null, transitioned: false, notification: null };
+      if (!locked) return { paid: null, transitioned: false, notifications: [] };
       if (locked.status === "paid" || locked.status === "received") {
-        return { paid: locked, transitioned: false, notification: null };
+        return { paid: locked, transitioned: false, notifications: [] };
       }
       const [employee] = await tx.select().from(employees)
         .where(eq(employees.id, Number(locked.employeeId))).limit(1);
       const frozen = await calculateSalaryPeriodData(locked, employee, tx);
-      if (!frozen) return { paid: null, transitioned: false, notification: null };
+      if (!frozen) return { paid: null, transitioned: false, notifications: [] };
       const summary = frozen.summary;
       const paidAt = new Date();
       const frozenSalary = { ...frozen.salary, status: "paid", paidAt };
@@ -2027,6 +2027,7 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
         snapshot: JSON.stringify(snapshot),
       }).where(and(eq(salaries.id, Number(id)), ne(salaries.status, "paid"))).returning();
       let paymentNotification = null;
+      let adminNotification = null;
       if (paid) {
         [paymentNotification] = await tx.insert(notifications).values({
           type: "salary_paid",
@@ -2038,10 +2039,27 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
           isRead: false,
           createdAt: new Date(),
         }).returning();
+        const employeeName = employee
+          ? `${employee.firstName || ""} ${employee.lastName || ""}`.trim()
+          : `#${paid.employeeId}`;
+        [adminNotification] = await tx.insert(notifications).values({
+          type: "salary_paid",
+          message: `تم دفع راتب ${employeeName} لشهر ${paid.month}/${paid.year}`,
+          recipientType: "admin",
+          recipientEmployeeId: null,
+          referenceId: Number(paid.id),
+          referenceIdType: "salary",
+          isRead: false,
+          createdAt: new Date(),
+        }).returning();
       }
-      return { paid: paid || locked, transitioned: Boolean(paid), notification: paymentNotification };
+      return {
+        paid: paid || locked,
+        transitioned: Boolean(paid),
+        notifications: [paymentNotification, adminNotification].filter(Boolean),
+      };
     }, { isolationLevel: "serializable" });
-    let result: { paid: any; transitioned: boolean; notification: any } | null = null;
+    let result: { paid: any; transitioned: boolean; notifications: any[] } | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         result = await finalizePayment();
@@ -2060,9 +2078,9 @@ export async function updateSalaryStatus(id: number, status: string, extra?: any
     const paid = result.paid;
     if (!paid) return null;
     if (!result.transitioned) return paid;
-    if (result.notification) {
-      publishNotification(result.notification);
-      void sendPushNotification(result.notification).catch((error) => {
+    for (const notification of result.notifications || []) {
+      publishNotification(notification);
+      void sendPushNotification(notification).catch((error) => {
         console.warn("salary payment push delivery failed:", error);
       });
     }

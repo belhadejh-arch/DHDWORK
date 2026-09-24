@@ -345,6 +345,8 @@
       const violations = Array.isArray(preview.violations) ? preview.violations : [];
       const bonuses = Array.isArray(preview.bonuses) ? preview.bonuses : [];
       const advances = Array.isArray(preview.advances) ? preview.advances : [];
+      const leaveRequests = Array.isArray(preview.leaveRequests) ? preview.leaveRequests : [];
+      const vacationRequests = Array.isArray(preview.vacationRequests) ? preview.vacationRequests : [];
       const absenceCount = attendanceRecords.filter((record) => record.isAbsent).length;
       const absenceRate = absenceCount
         ? Number(summary.absenceDeduction || 0) / absenceCount
@@ -418,6 +420,25 @@
             `- ${formatAmount(advance.amount)}`,
           ]),
           "لا توجد سلف معتمدة",
+        ),
+        detailTable(
+          "الإجازات والعطل المعتمدة",
+          ["النوع", "من", "إلى", "السبب / الملاحظة"],
+          [
+            ...leaveRequests.map((request) => [
+              request.leaveType || "إجازة",
+              formatDate(request.startDate),
+              formatDate(request.endDate || request.startDate),
+              request.description || request.adminNote || "—",
+            ]),
+            ...vacationRequests.map((request) => [
+              "عطلة",
+              formatDate(request.startDate),
+              formatDate(request.endDate || request.startDate),
+              request.description || request.adminNote || "—",
+            ]),
+          ],
+          "لا توجد إجازات أو عطل معتمدة خلال هذه الفترة",
         ),
       ].join("");
       const body = overlay.querySelector(".dhd-generated-review-body");
