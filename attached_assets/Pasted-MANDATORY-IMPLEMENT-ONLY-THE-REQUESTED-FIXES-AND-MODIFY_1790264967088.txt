@@ -1,0 +1,80 @@
+MANDATORY — IMPLEMENT ONLY THE REQUESTED FIXES AND MODIFY THE ACTUAL PROJECT FILES.
+
+Do not explain.
+Do not create a plan.
+Do not make unrelated changes.
+Do not change the design, layout, colors, navigation, buttons, or existing features.
+
+Required fixes only:
+
+1. SALARY PROCESS
+
+When the Admin reviews and sends salaries:
+- The salary must appear in the Admin account with a notification.
+- The salary statement must open as an internal page, NOT a PDF file.
+- The same salary statement must appear in the Employee account.
+
+The salary statement must display complete real data from the existing Neon PostgreSQL database, including:
+
+- Employee information
+- Basic salary
+- Actual attendance days and dates
+- Check-in and check-out times
+- Working hours
+- Actual absence days and dates
+- Late arrivals and duration
+- Late deductions
+- Violations and fines
+- All deductions and reasons
+- Advances
+- Bonuses
+- Leave and vacation information
+- Other additions or deductions
+- Total deductions
+- Net salary.
+
+The salary must be calculated for every employee using actual database records for attendance, absence, lateness, deductions, violations, advances, bonuses, and other applicable data.
+
+Admin:
+- Must preview the complete salary statement before payment.
+- After the statement loads successfully, show working buttons:
+  "Pay"
+  "Postpone"
+- Pay must execute the real existing payment process and update PostgreSQL.
+- Postpone must execute the real existing postponement process and update PostgreSQL.
+- The employee must receive the correct notification and salary status.
+
+Employee:
+- Must view their own complete salary statement.
+- Must see the same accurate salary data as Admin.
+- Must not see Admin-only payment controls.
+
+2. REAL PRODUCTION FUNCTIONALITY
+
+Everything must work with real data and real database operations.
+
+Use the existing production architecture:
+- Frontend: Vercel
+- Backend/API: Render
+- Database: existing Neon PostgreSQL
+
+Do not create mock data.
+Do not use fake calculations.
+Do not use fake buttons.
+Do not use fake notifications.
+Do not create PDF files.
+Do not bypass errors or hide loading problems.
+
+Fix the actual Frontend → Render API → Backend → Neon PostgreSQL flow wherever necessary.
+
+3. STRICT LIMITS
+
+Modify only the files required for these salary fixes.
+Do not change the existing design.
+Do not rebuild the application.
+Do not delete or reset any database.
+Do not delete employees, salaries, attendance, requests, or historical records.
+Do not change unrelated functionality.
+
+Actually edit and save the project files.
+Do not report completion unless the requested fixes have been implemented in the code.
