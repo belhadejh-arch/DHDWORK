@@ -86,6 +86,7 @@ import {
   ,getAttendanceChartData
   ,getSalaryChartData
   ,markAutoAbsences
+  ,ensureCurrentPeriodSalaries
   ,markSalaryReceived
   ,subscribeToNotifications
 } from './dbStore.js';
@@ -1070,8 +1071,9 @@ apiRouter.get('/employees/:id/salary-history', async (req, res) => {
 apiRouter.get('/salaries/upcoming', async (req, res) => {
   if (!await requireAdmin(req, res)) return;
   const now = new Date();
-  const month = String(req.query.month || now.getMonth() + 1).padStart(2, '0');
-  const year = Number(req.query.year || now.getFullYear());
+  const [currentYear, currentMonth] = getAttendanceClock(now).date.split('-');
+  const month = String(req.query.month || currentMonth).padStart(2, '0');
+  const year = Number(req.query.year || currentYear);
   const employeesList = await listEmployees();
   const result = await Promise.all(employeesList.map(async (employee: any) => {
     const salary = await getSalaryForPeriod(Number(employee.id), month, year);
@@ -1096,9 +1098,9 @@ apiRouter.get('/salaries/preview', async (req, res) => {
   if (!Number.isInteger(employeeId) || employeeId <= 0) {
     return res.status(400).json({ message: 'معرف الموظف غير صالح' });
   }
-  const now = new Date();
-  const month = String(req.query.month || String(now.getMonth() + 1).padStart(2, '0')).padStart(2, '0');
-  const year = Number(req.query.year || now.getFullYear());
+  const [currentYear, currentMonth] = getAttendanceClock().date.split('-');
+  const month = String(req.query.month || currentMonth).padStart(2, '0');
+  const year = Number(req.query.year || currentYear);
   if (!/^(0[1-9]|1[0-2])$/.test(month) || !Number.isInteger(year) || year < 2000 || year > 2200) {
     return res.status(400).json({ message: 'فترة الراتب غير صالحة' });
   }
@@ -1966,17 +1968,32 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
   }
 
   const { date, time } = getAttendanceClock();
-  const existing = (await listAttendance(ctx.employee.id)).find((item: any) => String(item.date || '').slice(0, 10) === date);
+  const employeeAttendance = await listAttendance(ctx.employee.id);
+  const todayRecord = employeeAttendance.find((item: any) => String(item.date || '').slice(0, 10) === date);
+  const previousDate = new Date(`${date}T12:00:00Z`);
+  previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+  const overnightShift = String(ctx.employee.workEndTime || '17:00').slice(0, 5) <=
+    String(ctx.employee.workStartTime || '08:00').slice(0, 5);
+  const yesterdayOpen = overnightShift
+    ? employeeAttendance.find((item: any) =>
+        String(item.date || '').slice(0, 10) === previousDate.toISOString().slice(0, 10) &&
+        item.checkInTime && !item.checkOutTime && !item.isAbsent)
+    : null;
+  const existing = req.params.action === 'checkout'
+    ? todayRecord?.checkInTime && !todayRecord.checkOutTime && !todayRecord.isAbsent
+      ? todayRecord : yesterdayOpen || todayRecord
+    : todayRecord;
   if (req.params.action === 'checkin' && existing?.checkInTime) {
     return res.status(409).json({ code: 'already_checked_in', message: 'تم تسجيل الحضور مسبقاً اليوم' });
   }
-  if (req.params.action === 'checkin' && existing?.isAbsent) {
+  if (req.params.action === 'checkin' && yesterdayOpen) {
+    return res.status(409).json({ code: 'shift_still_open', message: 'يجب تسجيل انصراف المناوبة السابقة أولاً' });
+  }
+  if (req.params.action === 'checkin' && existing?.isAbsent &&
+    !String(existing.notes || '').startsWith('غياب تلقائي')) {
     return res.status(409).json({ code: 'already_marked_absent', message: 'تم تسجيل هذا اليوم كغياب ولا يمكن فتح حضور جديد عبر QR' });
   }
-  if (req.params.action === 'checkout' && (!existing || existing.checkOutTime)) {
-    return res.status(409).json({ code: 'already_checked_out', message: 'لا يوجد تسجيل حضور مفتوح اليوم' });
-  }
-  if (!existing && req.params.action === 'checkout') {
+  if (req.params.action === 'checkout' && (!existing?.checkInTime || existing.checkOutTime || existing.isAbsent)) {
     return res.status(409).json({ code: 'already_checked_out', message: 'لا يوجد تسجيل حضور مفتوح اليوم' });
   }
 
@@ -2012,6 +2029,7 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
       longitude: empLng,
       rejectDuplicate: true,
       requireDatabase: true,
+      allowAutoAbsenceRecovery: true,
     });
     if ((record as any)?.duplicate) {
       return res.status(409).json({ code: 'already_checked_in', message: 'تم تسجيل الحضور مسبقاً اليوم' });
@@ -2028,6 +2046,7 @@ async function employeeAttendanceAction(req: express.Request, res: express.Respo
     latitude: empLat,
     longitude: empLng
   });
+  if (!updated) return res.status(409).json({ code: 'already_checked_out', message: 'تعذر إتمام الانصراف لهذا السجل' });
   return res.json({ ...updated, ok: true });
 }
 
@@ -2349,17 +2368,28 @@ async function autoMarkAbsentees() {
 
 // ─── Startup initialisation ───────────────────────────────────────────────
 // PostgreSQL is the source of truth for real office records and their QR values.
+async function ensureMonthlyPayslips() {
+  try {
+    const created = await ensureCurrentPeriodSalaries();
+    if (created > 0) console.log(`[monthlyPayslips] created ${created} pending records`);
+  } catch (error) {
+    // Keep the service available; the next scheduled run retries.
+    console.warn('[monthlyPayslips] error:', error instanceof Error ? error.message : error);
+  }
+}
 (async () => {
-  // Run auto-absence immediately on startup, then every hour
   await autoMarkAbsentees();
-
+  await ensureMonthlyPayslips();
 })();
 
 // Schedule auto-absence every hour (3600 seconds)
 setInterval(() => {
   // Reset the retry throttle for the scheduled hourly run.
   autoAbsenceLastAttemptAt = 0;
-  void autoMarkAbsentees();
+  void (async () => {
+    await autoMarkAbsentees();
+    await ensureMonthlyPayslips();
+  })();
 }, 3600 * 1000);
 
 // Haversine distance in metres between two GPS coordinates

@@ -161,38 +161,52 @@ function employeeName(employee: any) {
 function timeToMinutes(value: unknown) {
   if (!value) return null;
   const parts = String(value).split(":").map(Number);
-  if (parts.some((part) => Number.isNaN(part)) || parts.length < 2) return null;
+  if (parts.length < 2 || parts.length > 3 ||
+    !parts.every((part) => Number.isInteger(part)) ||
+    parts[0] < 0 || parts[0] > 23 || parts[1] < 0 || parts[1] > 59 ||
+    (parts.length === 3 && (parts[2] < 0 || parts[2] > 59))) return null;
   return parts[0] * 60 + parts[1];
 }
 
 function attendanceMetrics(record: any, employee?: any) {
-  const checkIn = timeToMinutes(record?.checkInTime);
-  const checkOut = timeToMinutes(record?.checkOutTime);
+  const isAbsent = Boolean(record?.isAbsent);
+  const checkIn = isAbsent ? null : timeToMinutes(record?.checkInTime);
+  const checkOut = isAbsent ? null : timeToMinutes(record?.checkOutTime);
   const start = timeToMinutes(employee?.workStartTime) ?? timeToMinutes(memoryStore.settings?.workStartTime) ?? 8 * 60;
   const end = timeToMinutes(employee?.workEndTime) ?? timeToMinutes(memoryStore.settings?.workEndTime) ?? 17 * 60;
-
-  const workedMinutes = record?.isAbsent
-    ? null
-    : record?.workedMinutes != null
-      ? Number(record.workedMinutes)
-      : checkIn != null && checkOut != null
-        ? (checkOut >= checkIn ? checkOut - checkIn : checkOut + 24 * 60 - checkIn)
-        : null;
-  const lateMinutes = record?.lateMinutes != null
-    ? Number(record.lateMinutes)
-    : checkIn != null
-      ? Math.max(0, checkIn - start)
-      : 0;
-  const isAbsent = Boolean(record?.isAbsent);
+  const endOfShift = end <= start ? end + 24 * 60 : end;
+  const actualCheckOut = checkIn != null && checkOut != null && checkOut < checkIn
+    ? checkOut + 24 * 60 : checkOut;
+  const workedMinutes = checkIn != null && actualCheckOut != null
+    ? actualCheckOut - checkIn : null;
+  const lateMinutes = checkIn == null ? 0 : Math.max(0, checkIn - start);
   const status = isAbsent ? "absent" : lateMinutes > 0 ? "late" : checkIn != null ? "present" : "absent";
-  const overtimeMinutes = record?.overtimeMinutes != null
-    ? Number(record.overtimeMinutes)
-    : checkOut != null ? Math.max(0, checkOut - end) : 0;
+  const overtimeMinutes = actualCheckOut != null && checkIn != null
+    ? Math.max(0, actualCheckOut - Math.max(endOfShift, checkIn)) : 0;
 
   return { workedMinutes, lateMinutes, overtimeMinutes, isAbsent, status };
 }
 
-function formatAttendanceRecord(record: any, employee?: any, office?: any, requestedDate?: string) {
+function latePenalty(lateMinutes: number, settingsRecord: any) {
+  const threshold = Math.max(0, Number(settingsRecord?.lateThresholdMinutes || 0));
+  return lateMinutes > threshold ? Number(settingsRecord?.lateDeductionAmount || 0) : 0;
+}
+
+async function requiredAttendanceSettings(db: ReturnType<typeof getDb>) {
+  const [record] = await db.select().from(settings).limit(1);
+  if (!record) throw new Error("إعدادات الحضور والرواتب غير موجودة في PostgreSQL");
+  return record;
+}
+
+function businessDate(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Algiers", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function formatAttendanceRecord(record: any, employee?: any, office?: any, requestedDate?: string, settingsRecord?: any) {
   const metrics = attendanceMetrics(record, employee);
   return {
     ...(record || {}),
@@ -203,6 +217,10 @@ function formatAttendanceRecord(record: any, employee?: any, office?: any, reque
     employeeName: employeeName(employee) || record?.employeeName || "—",
     officeName: office?.name || record?.officeName || null,
     ...metrics,
+    ...(settingsRecord ? {
+      lateDeduction: String(latePenalty(metrics.lateMinutes, settingsRecord)),
+      overtimeBonus: String(metrics.overtimeMinutes / 60 * Number(settingsRecord.overtimeHourlyRate || 0)),
+    } : {}),
   };
 }
 
@@ -220,6 +238,7 @@ function employeeHasRestDay(employee: any, dateValue: string) {
   }
   const names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const arabicNames = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+  if (values.length === 0) return weekday === 5 || weekday === 6;
   return values.some((value) => {
     const normalized = String(value).trim().toLowerCase();
     return normalized === String(weekday) || normalized === names[weekday] ||
@@ -230,7 +249,9 @@ function employeeHasRestDay(employee: any, dateValue: string) {
 }
 
 async function syncDailyAbsences(db: any, dateFilter: string) {
-  const activeEmployees = await db.select().from(employees).where(eq(employees.isActive, true));
+  if (dateFilter >= businessDate()) return;
+  const activeEmployees = await db.select().from(employees)
+    .where(and(eq(employees.isActive, true), isNull(employees.deletedAt)));
   const [approvedLeaves, approvedVacations] = await Promise.all([
     db.select().from(leaveRequests).where(eq(leaveRequests.status, "approved")),
     db.select().from(vacationRequests).where(eq(vacationRequests.status, "approved")),
@@ -780,7 +801,17 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
     a.status === "approved" &&
     (linkedToSalary(a) || (a.salaryId == null && inSalaryPeriod(a.requestedAt || a.createdAt)))
   );
-  const monthAttendance = allAttendance.filter((a: any) => String(a.date || "").startsWith(monthPrefix));
+  const monthAttendance = allAttendance
+    .filter((a: any) => String(a.date || "").startsWith(monthPrefix))
+    .map((record: any) => {
+      const metrics = attendanceMetrics(record, emp);
+      return {
+        ...record,
+        ...metrics,
+        lateDeduction: String(latePenalty(metrics.lateMinutes, settingsRecord)),
+        overtimeBonus: String((metrics.overtimeMinutes / 60) * Number(settingsRecord.overtimeHourlyRate || 0)),
+      };
+    });
   const monthBonuses = allBonuses.filter((b: any) =>
     (b.status === 'approved' || b.status == null) && (
       linkedToSalary(b) ||
@@ -795,7 +826,7 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
   const approvedLeaves = allLeaves.filter(overlapsPeriod);
   const approvedVacations = allVacations.filter(overlapsPeriod);
 
-  const attendancePresentDays = monthAttendance.filter((a: any) => !a.isAbsent && (a.checkInTime || a.checkOutTime)).length;
+  const attendancePresentDays = monthAttendance.filter((a: any) => !a.isAbsent && a.checkInTime).length;
   const attendanceAbsentDays = monthAttendance.filter((a: any) => a.isAbsent).length;
   const presentDays = attendancePresentDays;
   const absentDays = attendanceAbsentDays;
@@ -987,6 +1018,7 @@ export async function createOffice(data: any) {
 export async function listAttendance(employeeId?: number, dateFilter?: string) {
   try {
     const db = getDb();
+    const settingsRecord = await requiredAttendanceSettings(db);
     // The admin date view persists missing workday records as absences.
     if (!employeeId && dateFilter) {
       await syncDailyAbsences(db, dateFilter);
@@ -1001,7 +1033,7 @@ export async function listAttendance(employeeId?: number, dateFilter?: string) {
         .where(eq(employees.isActive, true))
         .orderBy(asc(employees.id));
 
-      return rows.map((row: any) => formatAttendanceRecord(row.attendance, row.employee, row.office, dateFilter));
+      return rows.map((row: any) => formatAttendanceRecord(row.attendance, row.employee, row.office, dateFilter, settingsRecord));
     }
 
     const rows = await db
@@ -1012,7 +1044,7 @@ export async function listAttendance(employeeId?: number, dateFilter?: string) {
       .where(employeeId ? eq(attendance.employeeId, Number(employeeId)) : undefined)
       .orderBy(desc(attendance.date), desc(attendance.id));
 
-    return rows.map((row: any) => formatAttendanceRecord(row.attendance, row.employee, row.office));
+    return rows.map((row: any) => formatAttendanceRecord(row.attendance, row.employee, row.office, undefined, settingsRecord));
   } catch (err) {
     throw err;
   }
@@ -1020,8 +1052,14 @@ export async function listAttendance(employeeId?: number, dateFilter?: string) {
 
 export async function recordAttendance(data: any) {
   const emp = await getEmployeeById(Number(data.employeeId));
-  const dateStr = data.date || new Date().toISOString().split("T")[0];
-  const checkInTimeStr = data.checkInTime || new Date().toTimeString().split(" ")[0];
+  if (!emp) throw new Error("الموظف غير موجود");
+  const dateStr = data.date || businessDate();
+  const isAbsent = data.status === "absent";
+  const checkInTimeStr = isAbsent ? null : data.checkInTime ||
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Algiers", hour: "2-digit", minute: "2-digit",
+      second: "2-digit", hourCycle: "h23",
+    }).format(new Date());
   const officeId = data.officeId == null ? emp?.officeId : Number(data.officeId);
   if (data.requireDatabase && (!officeId || Number(emp?.officeId) !== Number(officeId))) {
     throw new Error("Employee is not assigned to the QR office");
@@ -1030,9 +1068,9 @@ export async function recordAttendance(data: any) {
   try {
     const db = getDb();
     if (db) {
-      const settingsRecord = await getSettings();
-      const metrics = attendanceMetrics({ checkInTime: checkInTimeStr, isAbsent: data.status === "absent" }, emp);
-      const lateDeduction = metrics.lateMinutes > 0 ? Number(settingsRecord?.lateDeductionAmount || 0) : 0;
+      const settingsRecord = await requiredAttendanceSettings(db);
+      const metrics = attendanceMetrics({ checkInTime: checkInTimeStr, isAbsent }, emp);
+      const lateDeduction = latePenalty(metrics.lateMinutes, settingsRecord);
       const [record] = await db
         .insert(attendance)
         .values({
@@ -1042,7 +1080,7 @@ export async function recordAttendance(data: any) {
           checkInTime: checkInTimeStr,
           lateMinutes: metrics.lateMinutes,
           lateDeduction: String(lateDeduction),
-          isAbsent: data.status === "absent",
+          isAbsent,
           checkInLat: data.latitude ? String(data.latitude) : null,
           checkInLng: data.longitude ? String(data.longitude) : null,
           notes: data.notes || null
@@ -1058,29 +1096,30 @@ export async function recordAttendance(data: any) {
         eq(attendance.date, dateStr),
       )).limit(1);
       if (existing) {
+        if (data.allowAutoAbsenceRecovery && dateStr === businessDate() &&
+          existing.isAbsent && String(existing.notes || "").startsWith("غياب تلقائي") && checkInTimeStr) {
+          const [recovered] = await db.update(attendance).set({
+            isAbsent: false,
+            checkInTime: checkInTimeStr,
+            checkInLat: data.latitude == null ? null : String(data.latitude),
+            checkInLng: data.longitude == null ? null : String(data.longitude),
+            lateMinutes: metrics.lateMinutes,
+            lateDeduction: String(lateDeduction),
+            notes: null,
+          }).where(and(eq(attendance.id, existing.id), eq(attendance.isAbsent, true))).returning();
+          if (recovered) {
+            await refreshOpenSalaryCalculations(Number(data.employeeId));
+            return formatAttendanceRecord(recovered, emp);
+          }
+        }
         const formatted = formatAttendanceRecord(existing, emp);
         return data.rejectDuplicate ? { ...formatted, duplicate: true } : formatted;
       }
     }
   } catch (err) {
-    if (data.requireDatabase) throw err;
-    console.warn("DB recordAttendance failed, using fallback:", err);
+    throw err;
   }
-
-  const record = {
-    id: memoryStore.attendance.length > 0 ? Math.max(...memoryStore.attendance.map((a) => a.id)) + 1 : 1,
-    employeeId: Number(data.employeeId),
-    employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "الموظف",
-    date: dateStr,
-    checkInTime: checkInTimeStr,
-    status: data.status || "present",
-    notes: data.notes || null,
-    createdAt: new Date().toISOString()
-  };
-
-  memoryStore.attendance.unshift(record);
-  saveLocalStore();
-  return record;
+  throw new Error("تعذر حفظ الحضور في PostgreSQL");
 }
 
 export async function completeAttendance(id: number, data: any) {
@@ -1093,12 +1132,13 @@ export async function completeAttendance(id: number, data: any) {
     .where(eq(attendance.id, Number(id)))
     .limit(1);
   const existing = current[0];
-  if (!existing?.attendance) return null;
+  if (!existing?.attendance || existing.attendance.isAbsent ||
+    !existing.attendance.checkInTime || existing.attendance.checkOutTime) return null;
   const metrics = attendanceMetrics({
     ...existing.attendance,
     checkOutTime: data.checkOutTime,
   }, existing.employee);
-  const settingsRecord = await getSettings();
+  const settingsRecord = await requiredAttendanceSettings(db);
   const overtimeRate = Number(settingsRecord?.overtimeHourlyRate || 0);
   const [updated] = await db.update(attendance)
     .set({
@@ -1107,7 +1147,7 @@ export async function completeAttendance(id: number, data: any) {
       lateMinutes: metrics.lateMinutes,
       overtimeMinutes: metrics.overtimeMinutes,
       overtimeBonus: String((metrics.overtimeMinutes / 60) * overtimeRate),
-      lateDeduction: String(metrics.lateMinutes > 0 ? Number(settingsRecord?.lateDeductionAmount || 0) : 0),
+      lateDeduction: String(latePenalty(metrics.lateMinutes, settingsRecord)),
       checkOutLat: data.latitude == null ? null : String(data.latitude),
       checkOutLng: data.longitude == null ? null : String(data.longitude)
     })
@@ -1855,18 +1895,26 @@ export async function updateAttendance(id: number, data: any) {
   if (!existing?.attendance) return null;
 
   const nextRecord = { ...existing.attendance, ...data };
+  if (nextRecord.isAbsent) {
+    nextRecord.checkInTime = null;
+    nextRecord.checkOutTime = null;
+  }
   const metrics = attendanceMetrics(nextRecord, existing.employee);
-  const settingsRecord = await getSettings();
+  const settingsRecord = await requiredAttendanceSettings(db);
   const overtimeRate = Number(settingsRecord?.overtimeHourlyRate || 0);
   const updateData: any = {
     workedMinutes: metrics.workedMinutes,
     lateMinutes: metrics.lateMinutes,
     overtimeMinutes: metrics.overtimeMinutes,
     overtimeBonus: String((metrics.overtimeMinutes / 60) * overtimeRate),
-    lateDeduction: String(metrics.lateMinutes > 0 ? Number(settingsRecord?.lateDeductionAmount || 0) : 0),
+    lateDeduction: String(latePenalty(metrics.lateMinutes, settingsRecord)),
   };
   if (data.checkInTime !== undefined) updateData.checkInTime = data.checkInTime;
   if (data.checkOutTime !== undefined) updateData.checkOutTime = data.checkOutTime;
+  if (nextRecord.isAbsent) {
+    updateData.checkInTime = null;
+    updateData.checkOutTime = null;
+  }
   if (data.isAbsent !== undefined) updateData.isAbsent = data.isAbsent;
   if (data.notes !== undefined) updateData.notes = data.notes;
   const [updated] = await db.update(attendance).set(updateData).where(eq(attendance.id, Number(id))).returning();
@@ -1988,6 +2036,39 @@ export async function createSalary(data: any) {
     finalSalary: String(Number(summary.finalSalary || 0)),
   }).where(eq(salaries.id, Number(record.id))).returning();
   return updated ? { ...updated, employeeName: `${emp.firstName} ${emp.lastName}` } : null;
+}
+
+// Insert only missing pending rows for the current Algerian payroll period.
+// Reviews and employee salary listings remain read-only; both calculate their
+// open balances from the live attendance data when requested.
+export async function ensureCurrentPeriodSalaries() {
+  const db = getDb();
+  const [yearValue, month] = businessDate().split("-");
+  const year = Number(yearValue);
+  const activeEmployees = await db.select().from(employees)
+    .where(and(eq(employees.isActive, true), isNull(employees.deletedAt)));
+  if (!activeEmployees.length) return 0;
+  const existing = await db.select({ employeeId: salaries.employeeId, month: salaries.month })
+    .from(salaries).where(eq(salaries.year, year));
+  // Older records can use "9" rather than "09"; never create a second open
+  // statement beside an existing paid row for the same employee and period.
+  const existingIds = new Set(existing
+    .filter((record) => String(record.month || "").padStart(2, "0") === month)
+    .map((record) => Number(record.employeeId)));
+  const today = businessDate();
+  const missing = activeEmployees.filter((employee) =>
+    !existingIds.has(Number(employee.id)) &&
+    (!employee.hireDate || String(employee.hireDate).slice(0, 10) <= today));
+  if (!missing.length) return 0;
+  const inserted = await db.insert(salaries).values(missing.map((employee) => ({
+    employeeId: Number(employee.id),
+    month,
+    year,
+    baseSalary: String(employee.baseSalary ?? 0),
+    status: "pending",
+  }))).onConflictDoNothing({ target: [salaries.employeeId, salaries.month, salaries.year] })
+    .returning({ id: salaries.id });
+  return inserted.length;
 }
 
 export async function updateSalaryStatus(id: number, status: string, extra?: any) {
@@ -2516,12 +2597,9 @@ export async function markAutoAbsences(lookbackDays = 30) {
   const db = getDb();
   if (!db) return 0;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().slice(0, 10);
-
-  const since = new Date(today);
-  since.setDate(since.getDate() - lookbackDays);
+  const todayStr = businessDate();
+  const since = new Date(`${todayStr}T12:00:00Z`);
+  since.setUTCDate(since.getUTCDate() - lookbackDays);
   const sinceStr = since.toISOString().slice(0, 10);
 
   // Load all active employees
@@ -2542,38 +2620,18 @@ export async function markAutoAbsences(lookbackDays = 30) {
     existingAtt.map((a: any) => `${a.employeeId}:${String(a.date || '').slice(0, 10)}`)
   );
 
-  const REST_DAY_MAP: Record<string, number> = {
-    'sunday': 0, 'monday': 1, 'tuesday': 2, 'wednesday': 3,
-    'thursday': 4, 'friday': 5, 'saturday': 6,
-    'الأحد': 0, 'الاحد': 0, 'الإثنين': 1, 'الاثنين': 1, 'الثلاثاء': 2, 'الأربعاء': 3,
-    'الخميس': 4, 'الجمعة': 5, 'السبت': 6,
-  };
-
   const inserts: any[] = [];
   const now = new Date();
 
   for (const emp of allEmps) {
-    // Parse rest days — stored as JSON array e.g. ["Friday","Saturday"]
-    let restDayNums: number[] = [];
-    try {
-      const parsed = typeof emp.restDays === 'string' ? JSON.parse(emp.restDays) : (emp.restDays ?? []);
-      if (Array.isArray(parsed)) {
-        restDayNums = parsed
-          .map((d: any) => REST_DAY_MAP[String(d).trim().toLowerCase()] ?? -1)
-          .filter((n: number) => n >= 0);
-      }
-    } catch {}
-    // Default: Friday + Saturday (common Algerian work week)
-    if (!restDayNums.length) restDayNums = [5, 6];
-
     for (let d = 0; d < lookbackDays; d++) {
       const date = new Date(since);
-      date.setDate(date.getDate() + d);
+      date.setUTCDate(date.getUTCDate() + d);
       const dateStr = date.toISOString().slice(0, 10);
       if (dateStr >= todayStr) break; // never mark today absent
       const hireDate = String(emp.hireDate || '').slice(0, 10);
       if (hireDate && dateStr < hireDate) continue;
-      if (restDayNums.includes(date.getDay())) continue; // skip rest days
+      if (employeeHasRestDay(emp, dateStr)) continue;
 
       const key = `${emp.id}:${dateStr}`;
       if (attSet.has(key)) continue; // already has a record for this day
