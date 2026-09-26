@@ -125,12 +125,18 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Health Check Endpoints
+const healthPayload = () => ({
+  status: 'ok',
+  timestamp: new Date().toISOString(),
+  revision: process.env.RENDER_GIT_COMMIT?.slice(0, 12) || null,
+});
+
 app.get('/healthz', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.status(200).json(healthPayload());
 });
 
 app.get('/api/healthz', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.status(200).json(healthPayload());
 });
 
 // Primary API Router
