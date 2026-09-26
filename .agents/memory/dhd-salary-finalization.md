@@ -21,8 +21,14 @@ Salary preview reads must fail explicitly when a required PostgreSQL table or qu
 
 **How to apply:** Keep employee/salary/detail reads strict on the review path and let the API error path report the failure instead of synthesizing a payslip.
 
-Employee salary listing is read-only and must not auto-create the current month's salary row.
+Employee salary listing and preview are read-only; create missing current-month pending rows for active employees in the scheduled payroll initialization, not in a GET request. Check both padded and legacy unpadded month labels before inserting, and never replace a paid row.
 
-**Why:** Opening the employee account should never mutate payroll data; creation belongs to an explicit payroll operation such as payment or postponement.
+**Why:** Opening an account should not mutate payroll, but every active employee needs an available current-period statement; older month labels can otherwise make an already-paid period look absent.
 
-**How to apply:** Resolve employee payslips through the shared PostgreSQL preview calculation and surface database failures instead of returning in-memory fallback data.
+**How to apply:** Use a conflict-safe scheduled pending-row creation path. Resolve employee payslips through the shared PostgreSQL preview calculation and surface database failures instead of returning in-memory fallback data.
+
+An API health check reporting a connected database is not evidence that the payroll/employee tables exist or have the required schema in development.
+
+**Why:** The development database can connect while employee queries fail, so screenshots with synthetic responses cannot establish the correctness of real payroll amounts.
+
+**How to apply:** Verify authenticated payroll against a complete authorized database before claiming live amounts or per-employee visibility; do not create fake employee or salary data to pass a check.
