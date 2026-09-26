@@ -27,8 +27,8 @@ Employee salary listing and preview are read-only; create missing current-month 
 
 **How to apply:** Use a conflict-safe scheduled pending-row creation path. Resolve employee payslips through the shared PostgreSQL preview calculation and surface database failures instead of returning in-memory fallback data.
 
-An API health check reporting a connected database is not evidence that the payroll/employee tables exist or have the required schema in development.
+An API health check reporting a connected database is not evidence that the payroll/employee tables exist or have the required schema in development. The user confirmed that real DHD payroll data is in the connected Neon project named Dhldatabease, not the incomplete Replit development database.
 
-**Why:** The development database can connect while employee queries fail, so screenshots with synthetic responses cannot establish the correctness of real payroll amounts.
+**Why:** The development database can connect while employee queries fail, so screenshots with synthetic responses cannot establish the correctness of real payroll amounts. Replit Publishing status also does not represent the external Vercel frontend and Render API.
 
-**How to apply:** Verify authenticated payroll against a complete authorized database before claiming live amounts or per-employee visibility; do not create fake employee or salary data to pass a check.
+**How to apply:** Inspect the connected Neon database read-only for production payroll checks and verify Vercel and Render updates separately. Verify authenticated payroll against a complete authorized database before claiming live amounts or per-employee visibility; do not create fake employee or salary data to pass a check.
