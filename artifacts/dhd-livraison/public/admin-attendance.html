@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ff8c00">
+  <title>الحضور والانصراف | DHD Livraison</title>
+  <style>
+    :root { font-family: system-ui, "Changa", sans-serif; color: #172137; background: #f5f6fa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    a { color: inherit; text-decoration: none; }
+    :focus-visible { outline: 3px solid #f97316; outline-offset: 3px; }
+    header { background: #fff; border-bottom: 3px solid #ff8c00; padding: 12px max(16px, calc((100vw - 1180px) / 2)); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { color: #e87500; font-size: 22px; font-weight: 900; font-style: italic; }
+    .back { border: 1px solid #d9dde6; border-radius: 12px; padding: 9px 13px; font-size: 14px; font-weight: 700; }
+    main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 80px; }
+    h1 { font-size: clamp(24px, 4vw, 34px); margin: 0 0 6px; }
+    .intro { color: #626b7a; margin: 0 0 23px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; background: #fff; padding: 16px; border: 1px solid #e4e7ed; border-radius: 18px; }
+    .toolbar label, .form-field { display: grid; gap: 5px; font-weight: 700; font-size: 13px; }
+    .toolbar input, .form-field input, .form-field textarea { min-height: 42px; border: 1px solid #cbd2dd; border-radius: 10px; background: #fff; color: #172137; padding: 8px 11px; }
+    .toolbar input[type=search] { min-width: 220px; }
+    .action { background: #f97316; border: 1px solid #ea650d; color: white; border-radius: 10px; min-height: 42px; padding: 8px 17px; font-weight: 800; }
+    .action.secondary { background: #fff; color: #203453; border-color: #cbd2dd; }
+    .summary { display: flex; flex-wrap: wrap; gap: 9px; margin: 17px 0 7px; }
+    .count { background: #fff; border: 1px solid #e4e7ed; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 700; }
+    .notice { color: #44536a; min-height: 25px; margin: 12px 0; font-size: 14px; }
+    .notice.error { color: #a32030; background: #fff0f1; border-radius: 10px; padding: 12px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 335px), 1fr)); gap: 14px; }
+    .card { border: 1px solid #e2e5eb; background: #fff; border-radius: 18px; overflow: hidden; box-shadow: 0 3px 14px rgb(23 33 55 / .04); }
+    .card-head { padding: 15px 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #edf0f3; }
+    .card h2 { font-size: 17px; margin: 0 0 4px; overflow-wrap: anywhere; }
+    .office { color: #6a7585; font-size: 13px; margin: 0; }
+    .badge { flex: none; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 800; background: #edf0f4; color: #485565; }
+    .badge.present { background: #dcf9ed; color: #007e53; }
+    .badge.late { background: #fff2d6; color: #976100; }
+    .badge.absent { background: #ffe6e9; color: #bd2944; }
+    .badge.rest, .badge.leave { background: #e8f2ff; color: #235d9e; }
+    .times { padding: 14px 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .time { background: #f8f9fc; border-radius: 11px; padding: 9px 11px; }
+    .time span { display: block; color: #6c7481; font-size: 12px; }
+    .time strong { display: block; direction: ltr; text-align: right; font-size: 16px; font-variant-numeric: tabular-nums; margin-top: 3px; }
+    .time strong.muted { direction: rtl; font-size: 13px; font-weight: 600; color: #77808f; }
+    .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 16px; border-top: 1px solid #edf0f3; }
+    .card-foot small { color: #6c7481; line-height: 1.5; }
+    .edit { border: 1px solid #cbd2dd; background: #fff; color: #243a5d; border-radius: 9px; font-weight: 700; padding: 7px 14px; white-space: nowrap; }
+    dialog { border: 0; border-radius: 17px; width: min(94vw, 460px); max-height: 90vh; overflow: auto; padding: 22px; color: #172137; box-shadow: 0 20px 70px rgb(20 30 50 / .24); }
+    dialog::backdrop { background: rgb(15 23 42 / .55); }
+    dialog h2 { margin: 0 0 17px; }
+    form { display: grid; gap: 13px; }
+    textarea { min-height: 68px; resize: vertical; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .checkbox { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+    .checkbox input { width: 18px; height: 18px; accent-color: #ef4444; }
+    .dialog-actions { display: flex; gap: 9px; justify-content: flex-end; }
+    .error-text { color: #b12435; min-height: 18px; font-size: 13px; }
+    @media (max-width: 480px) {
+      main { padding: 20px 14px 75px; }
+      .toolbar label { flex: 1 1 140px; }
+      .toolbar input, .toolbar input[type=search] { width: 100%; min-width: 0; }
+      .times { gap: 7px; }
+      .card-head { flex-wrap: wrap; }
+    }
+  </style>
+  <script defer src="/admin-attendance.js"></script>
+</head>
+<body>
+  <header><strong class="brand">DHD Livraison</strong><a class="back" href="/">العودة إلى الإدارة</a></header>
+  <main>
+    <h1>الحضور والانصراف</h1>
+    <p class="intro">أوقات الدخول والخروج الفعلية، الغياب المسجل، أيام الراحة والإجازات المعتمدة. تُحدّث القائمة تلقائيًا.</p>
+    <section class="toolbar" aria-label="تصفية الحضور">
+      <label>التاريخ <input id="date" type="date"></label>
+      <label>بحث عن موظف أو مكتب <input id="search" type="search" placeholder="اكتب الاسم أو المكتب"></label>
+      <button id="refresh" class="action secondary" type="button">تحديث الآن</button>
+    </section>
+    <div id="summary" class="summary" aria-label="ملخص اليوم"></div>
+    <p id="message" class="notice" role="status" aria-live="polite">جارٍ تحميل سجلات الحضور…</p>
+    <section id="cards" class="cards" aria-label="سجلات الموظفين"></section>
+  </main>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <form id="edit-form">
+      <h2 id="editor-title">تصحيح الحضور</h2>
+      <p id="editor-description" class="office"></p>
+      <div class="form-row">
+        <label class="form-field">وقت الدخول <input id="check-in" type="time" step="1"></label>
+        <label class="form-field">وقت الخروج <input id="check-out" type="time" step="1"></label>
+      </div>
+      <label class="checkbox"><input id="absent" type="checkbox"> تسجيل غياب لهذا اليوم</label>
+      <label class="form-field">ملاحظة التصحيح <textarea id="notes" maxlength="500"></textarea></label>
+      <p id="edit-error" class="error-text" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="cancel" class="action secondary" type="button">إلغاء</button>
+        <button id="save" class="action" type="submit">حفظ السجل</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

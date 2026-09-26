@@ -750,8 +750,11 @@ apiRouter.get('/attendance', async (req, res) => {
 
 apiRouter.post('/attendance', async (req, res) => {
   if (!await requireAdmin(req, res)) return;
-  const record = await recordAttendance(req.body);
-  res.status(201).json(record);
+  const record = await recordAttendance({ ...req.body, rejectDuplicate: true });
+  if ((record as any)?.duplicate) {
+    return res.status(409).json({ message: 'يوجد سجل حضور لهذا الموظف في هذا التاريخ؛ حدّث الصفحة قبل التصحيح' });
+  }
+  return res.status(201).json(record);
 });
 
 // Employee self-service attendance actions. Keeping this under /api makes it

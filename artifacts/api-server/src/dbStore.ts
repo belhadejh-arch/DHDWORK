@@ -180,7 +180,7 @@ function attendanceMetrics(record: any, employee?: any) {
   const workedMinutes = checkIn != null && actualCheckOut != null
     ? actualCheckOut - checkIn : null;
   const lateMinutes = checkIn == null ? 0 : Math.max(0, checkIn - start);
-  const status = isAbsent ? "absent" : lateMinutes > 0 ? "late" : checkIn != null ? "present" : "absent";
+  const status = isAbsent ? "absent" : lateMinutes > 0 ? "late" : checkIn != null ? "present" : "pending";
   const overtimeMinutes = actualCheckOut != null && checkIn != null
     ? Math.max(0, actualCheckOut - Math.max(endOfShift, checkIn)) : 0;
 
@@ -206,6 +206,25 @@ function businessDate(now = new Date()) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function businessWallMinutes(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Algiers", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day),
+    Number(values.hour), Number(values.minute)) / 60000;
+}
+
+function shiftHasEnded(employee: any, dateValue: string, settingsRecord: any, wallNow: number) {
+  const start = timeToMinutes(employee?.workStartTime) ??
+    timeToMinutes(settingsRecord?.workStartTime) ?? 8 * 60;
+  const end = timeToMinutes(employee?.workEndTime) ??
+    timeToMinutes(settingsRecord?.workEndTime) ?? 17 * 60;
+  const endMinutes = end <= start ? end + 24 * 60 : end;
+  return wallNow >= Date.parse(`${dateValue}T00:00:00Z`) / 60000 + endMinutes;
+}
+
 function formatAttendanceRecord(record: any, employee?: any, office?: any, requestedDate?: string, settingsRecord?: any) {
   const metrics = attendanceMetrics(record, employee);
   return {
@@ -214,6 +233,7 @@ function formatAttendanceRecord(record: any, employee?: any, office?: any, reque
     employeeId: Number(employee?.id ?? record?.employeeId),
     officeId: record?.officeId ?? employee?.officeId ?? office?.id ?? null,
     date: record?.date || requestedDate || null,
+    absenceRecordedAt: record?.isAbsent ? record.createdAt || null : null,
     employeeName: employeeName(employee) || record?.employeeName || "—",
     officeName: office?.name || record?.officeName || null,
     ...metrics,
@@ -248,8 +268,10 @@ function employeeHasRestDay(employee: any, dateValue: string) {
   });
 }
 
-async function syncDailyAbsences(db: any, dateFilter: string) {
-  if (dateFilter >= businessDate()) return;
+async function syncDailyAbsences(db: any, dateFilter: string, settingsRecord: any) {
+  const now = new Date();
+  if (dateFilter > businessDate(now)) return;
+  const wallNow = businessWallMinutes(now);
   const activeEmployees = await db.select().from(employees)
     .where(and(eq(employees.isActive, true), isNull(employees.deletedAt)));
   const [approvedLeaves, approvedVacations] = await Promise.all([
@@ -269,6 +291,7 @@ async function syncDailyAbsences(db: any, dateFilter: string) {
     return !existingIds.has(Number(employee.id)) &&
       (!hireDate || dateFilter >= hireDate) &&
       !employeeHasRestDay(employee, dateFilter) &&
+      shiftHasEnded(employee, dateFilter, settingsRecord, wallNow) &&
       !onApprovedTimeOff(Number(employee.id));
   });
   if (!missing.length) return;
@@ -278,7 +301,7 @@ async function syncDailyAbsences(db: any, dateFilter: string) {
     date: dateFilter,
     isAbsent: true,
     notes: "غياب تلقائي: لم يتم تسجيل الحضور في يوم عمل",
-    createdAt: new Date(),
+    createdAt: now,
   }))).onConflictDoNothing({ target: [attendance.employeeId, attendance.date] });
 }
 
@@ -1019,10 +1042,10 @@ export async function listAttendance(employeeId?: number, dateFilter?: string) {
   try {
     const db = getDb();
     const settingsRecord = await requiredAttendanceSettings(db);
-    // The admin date view persists missing workday records as absences.
+    // A workday becomes absent only after that employee's shift has ended.
     if (!employeeId && dateFilter) {
-      await syncDailyAbsences(db, dateFilter);
-      const rows = await db
+      await syncDailyAbsences(db, dateFilter, settingsRecord);
+      const [rows, approvedLeaves, approvedVacations] = await Promise.all([db
         .select({ employee: employees, attendance: attendance, office: offices })
         .from(employees)
         .leftJoin(attendance, and(
@@ -1030,10 +1053,25 @@ export async function listAttendance(employeeId?: number, dateFilter?: string) {
           eq(attendance.date, dateFilter),
         ))
         .leftJoin(offices, eq(offices.id, employees.officeId))
-        .where(eq(employees.isActive, true))
-        .orderBy(asc(employees.id));
+        .where(and(eq(employees.isActive, true), isNull(employees.deletedAt)))
+        .orderBy(asc(employees.id)),
+        db.select().from(leaveRequests).where(eq(leaveRequests.status, "approved")),
+        db.select().from(vacationRequests).where(eq(vacationRequests.status, "approved")),
+      ]);
 
-      return rows.map((row: any) => formatAttendanceRecord(row.attendance, row.employee, row.office, dateFilter, settingsRecord));
+      return rows.map((row: any) => {
+        const formatted = formatAttendanceRecord(row.attendance, row.employee, row.office, dateFilter, settingsRecord);
+        if (row.attendance?.id) return formatted;
+        const onLeave = [...approvedLeaves, ...approvedVacations].some((request: any) =>
+          Number(request.employeeId) === Number(row.employee.id) &&
+          String(request.startDate || "") <= dateFilter &&
+          String(request.endDate || request.startDate || "") >= dateFilter);
+        return {
+          ...formatted,
+          status: employeeHasRestDay(row.employee, dateFilter) ? "rest" :
+            onLeave ? "leave" : dateFilter > businessDate() ? "future" : "pending",
+        };
+      });
     }
 
     const rows = await db
@@ -1060,6 +1098,7 @@ export async function recordAttendance(data: any) {
       timeZone: "Africa/Algiers", hour: "2-digit", minute: "2-digit",
       second: "2-digit", hourCycle: "h23",
     }).format(new Date());
+  const checkOutTimeStr = isAbsent ? null : data.checkOutTime || null;
   const officeId = data.officeId == null ? emp?.officeId : Number(data.officeId);
   if (data.requireDatabase && (!officeId || Number(emp?.officeId) !== Number(officeId))) {
     throw new Error("Employee is not assigned to the QR office");
@@ -1069,7 +1108,7 @@ export async function recordAttendance(data: any) {
     const db = getDb();
     if (db) {
       const settingsRecord = await requiredAttendanceSettings(db);
-      const metrics = attendanceMetrics({ checkInTime: checkInTimeStr, isAbsent }, emp);
+      const metrics = attendanceMetrics({ checkInTime: checkInTimeStr, checkOutTime: checkOutTimeStr, isAbsent }, emp);
       const lateDeduction = latePenalty(metrics.lateMinutes, settingsRecord);
       const [record] = await db
         .insert(attendance)
@@ -1078,12 +1117,17 @@ export async function recordAttendance(data: any) {
            officeId: officeId == null ? null : Number(officeId),
           date: dateStr,
           checkInTime: checkInTimeStr,
+          checkOutTime: checkOutTimeStr,
+          workedMinutes: metrics.workedMinutes,
           lateMinutes: metrics.lateMinutes,
+          overtimeMinutes: metrics.overtimeMinutes,
+          overtimeBonus: String(metrics.overtimeMinutes / 60 * Number(settingsRecord.overtimeHourlyRate || 0)),
           lateDeduction: String(lateDeduction),
           isAbsent,
           checkInLat: data.latitude ? String(data.latitude) : null,
           checkInLng: data.longitude ? String(data.longitude) : null,
-          notes: data.notes || null
+          notes: data.notes || null,
+          createdAt: new Date(),
         })
         .onConflictDoNothing({ target: [attendance.employeeId, attendance.date] })
         .returning();
@@ -1101,8 +1145,12 @@ export async function recordAttendance(data: any) {
           const [recovered] = await db.update(attendance).set({
             isAbsent: false,
             checkInTime: checkInTimeStr,
+            checkOutTime: null,
             checkInLat: data.latitude == null ? null : String(data.latitude),
             checkInLng: data.longitude == null ? null : String(data.longitude),
+            workedMinutes: null,
+            overtimeMinutes: 0,
+            overtimeBonus: "0",
             lateMinutes: metrics.lateMinutes,
             lateDeduction: String(lateDeduction),
             notes: null,
@@ -1151,7 +1199,8 @@ export async function completeAttendance(id: number, data: any) {
       checkOutLat: data.latitude == null ? null : String(data.latitude),
       checkOutLng: data.longitude == null ? null : String(data.longitude)
     })
-    .where(eq(attendance.id, Number(id)))
+    .where(and(eq(attendance.id, Number(id)), eq(attendance.isAbsent, false),
+      isNull(attendance.checkOutTime)))
     .returning();
   if (updated) await refreshOpenSalaryCalculations(Number(updated.employeeId));
   return updated ? formatAttendanceRecord(updated, existing.employee, existing.office) : null;
@@ -2601,7 +2650,10 @@ export async function markAutoAbsences(lookbackDays = 30) {
   const db = getDb();
   if (!db) return 0;
 
-  const todayStr = businessDate();
+  const now = new Date();
+  const todayStr = businessDate(now);
+  const wallNow = businessWallMinutes(now);
+  const settingsRecord = await requiredAttendanceSettings(db);
   const since = new Date(`${todayStr}T12:00:00Z`);
   since.setUTCDate(since.getUTCDate() - lookbackDays);
   const sinceStr = since.toISOString().slice(0, 10);
@@ -2625,17 +2677,17 @@ export async function markAutoAbsences(lookbackDays = 30) {
   );
 
   const inserts: any[] = [];
-  const now = new Date();
 
   for (const emp of allEmps) {
-    for (let d = 0; d < lookbackDays; d++) {
+    for (let d = 0; d <= lookbackDays; d++) {
       const date = new Date(since);
       date.setUTCDate(date.getUTCDate() + d);
       const dateStr = date.toISOString().slice(0, 10);
-      if (dateStr >= todayStr) break; // never mark today absent
+      if (dateStr > todayStr) break;
       const hireDate = String(emp.hireDate || '').slice(0, 10);
       if (hireDate && dateStr < hireDate) continue;
       if (employeeHasRestDay(emp, dateStr)) continue;
+      if (!shiftHasEnded(emp, dateStr, settingsRecord, wallNow)) continue;
 
       const key = `${emp.id}:${dateStr}`;
       if (attSet.has(key)) continue; // already has a record for this day
@@ -2660,12 +2712,17 @@ export async function markAutoAbsences(lookbackDays = 30) {
 
   if (inserts.length) {
     // Insert in batches; the unique index on (employeeId, date) prevents duplicates
+    let inserted = 0;
     for (let i = 0; i < inserts.length; i += 100) {
-      await db.insert(attendance).values(inserts.slice(i, i + 100)).onConflictDoNothing();
+      const rows = await db.insert(attendance).values(inserts.slice(i, i + 100))
+        .onConflictDoNothing({ target: [attendance.employeeId, attendance.date] })
+        .returning({ id: attendance.id });
+      inserted += rows.length;
     }
-    console.log(`[markAutoAbsences] Inserted ${inserts.length} absent records`);
+    console.log(`[markAutoAbsences] Inserted ${inserted} absent records`);
+    return inserted;
   }
-  return inserts.length;
+  return 0;
 }
 
 // Unified requests listing (advances + leave + vacation) with optional status filter
