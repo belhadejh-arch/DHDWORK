@@ -1669,13 +1669,13 @@ async function getEmployeePayslip(req: express.Request, res: express.Response) {
       return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
     }
 
-    const now = new Date();
+    const [currentYear, currentMonth] = getAttendanceClock().date.split('-');
     const month = persistedSalary
       ? String(persistedSalary.month).padStart(2, '0')
       : /^(0[1-9]|1[0-2])$/.test(requestedValue)
         ? requestedValue
-        : String(now.getMonth() + 1).padStart(2, '0');
-    const year = persistedSalary ? Number(persistedSalary.year) : now.getFullYear();
+        : currentMonth;
+    const year = persistedSalary ? Number(persistedSalary.year) : Number(currentYear);
     const preview = await getSalaryPreviewData(employeeId, month, year);
     if (!preview) return res.status(404).json({ message: 'لا يوجد كشف راتب لهذه الفترة' });
 

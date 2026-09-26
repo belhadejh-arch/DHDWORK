@@ -1704,6 +1704,10 @@ export async function listSalaries(employeeId?: number) {
     bonuses: Number(salary?.bonuses || 0),
     finalSalary: Number(salary?.finalSalary || salary?.netSalary || 0),
   });
+  const newestFirst = (a: any, b: any) =>
+    (Number(b.year) || 0) - (Number(a.year) || 0) ||
+    (Number(b.month) || 0) - (Number(a.month) || 0) ||
+    (Number(b.id) || 0) - (Number(a.id) || 0);
 
   try {
     const db = getDb();
@@ -1713,7 +1717,7 @@ export async function listSalaries(employeeId?: number) {
       if (employeeId) {
         list = list.filter((s: any) => Number(s.employeeId) === Number(employeeId));
       }
-      return list.map(normalizeSalary);
+      return list.map(normalizeSalary).sort(newestFirst);
     }
   } catch (err) {
     // Employee salary reads must never silently fall back to demo/in-memory
@@ -1726,7 +1730,7 @@ export async function listSalaries(employeeId?: number) {
   if (employeeId) {
     list = list.filter((s) => Number(s.employeeId) === Number(employeeId));
   }
-  return list.map(normalizeSalary);
+  return list.map(normalizeSalary).sort(newestFirst);
 }
 
 // Notifications
