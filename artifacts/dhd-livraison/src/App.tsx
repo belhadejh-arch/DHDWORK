@@ -870,15 +870,19 @@ function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
   const [details, setDetails] = useState<SalaryDetailsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!employee || !params.id) return;
     let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 30_000);
     setLoading(true);
     setError('');
     fetch(`/api/employee/salaries/${encodeURIComponent(params.id)}/details`, {
       credentials: 'include',
       headers: employeeAuthHeaders(),
+      signal: controller.signal,
     })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
@@ -889,11 +893,20 @@ function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
         if (!cancelled) setDetails(body);
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : 'تعذر تحميل تفاصيل كشف الراتب');
+        if (!cancelled) setError(reason instanceof Error && reason.name === 'AbortError'
+          ? 'انتهت مهلة تحميل كشف الراتب. حاول مجددًا.'
+          : reason instanceof Error ? reason.message : 'تعذر تحميل تفاصيل كشف الراتب');
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [employee?.id, params.id]);
+      .finally(() => {
+        window.clearTimeout(timeout);
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [employee?.id, params.id, retry]);
 
   if (!employee && isChecking) return <LoadingScreen />;
   if (!employee) return <Redirect to="/portal/login" />;
@@ -930,7 +943,10 @@ function EmployeeSalaryDetailsPage({ params }: { params: { id: string } }) {
         {loading ? (
           <section className="dhd-section-card"><p className="dhd-empty-state">جارٍ تحميل بيانات كشف الراتب من PostgreSQL...</p></section>
         ) : error ? (
-          <section className="dhd-section-card"><p className="dhd-empty-state dhd-error-state">{error}</p></section>
+          <section className="dhd-section-card">
+            <p className="dhd-empty-state dhd-error-state">{error}</p>
+            <button className="dhd-action-button" type="button" onClick={() => setRetry((attempt) => attempt + 1)}>إعادة المحاولة</button>
+          </section>
         ) : salary && summary ? (
           <>
             <section className="dhd-section-card dhd-salary-details-summary">

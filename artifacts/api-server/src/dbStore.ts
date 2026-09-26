@@ -736,22 +736,24 @@ async function calculateSalaryPeriodData(salaryRecord: any, employeeRecord?: any
   if (!emp) return null;
   const db = database || getDb();
 
-  // Keep these reads sequential: during payment they share one transaction
-  // client and must represent one consistent PostgreSQL snapshot.
-  let allViolations: any[] = [];
-  let allAdvances: any[] = [];
-  let allAttendance: any[] = [];
-  let allBonuses: any[] = [];
-  let allLeaves: any[] = [];
-  let allVacations: any[] = [];
-  let settingsRows: any[] = [];
-  allViolations = await db.select().from(violations).where(eq(violations.employeeId, Number(salary.employeeId)));
-  allAdvances = await db.select().from(advances).where(eq(advances.employeeId, Number(salary.employeeId)));
-  allAttendance = await db.select().from(attendance).where(eq(attendance.employeeId, Number(salary.employeeId)));
-  allBonuses = await db.select().from(bonuses).where(eq(bonuses.employeeId, Number(salary.employeeId)));
-  allLeaves = await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, Number(salary.employeeId)));
-  allVacations = await db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, Number(salary.employeeId)));
-  settingsRows = await db.select().from(settings);
+  // Keep the payment path sequential on its transaction client. Independent
+  // preview reads can use the pool concurrently to avoid a long-lived loader.
+  const employeeId = Number(salary.employeeId);
+  const readViolations = () => db.select().from(violations).where(eq(violations.employeeId, employeeId));
+  const readAdvances = () => db.select().from(advances).where(eq(advances.employeeId, employeeId));
+  const readAttendance = () => db.select().from(attendance).where(eq(attendance.employeeId, employeeId));
+  const readBonuses = () => db.select().from(bonuses).where(eq(bonuses.employeeId, employeeId));
+  const readLeaves = () => db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, employeeId));
+  const readVacations = () => db.select().from(vacationRequests).where(eq(vacationRequests.employeeId, employeeId));
+  const readSettings = () => db.select().from(settings);
+  const [allViolations, allAdvances, allAttendance, allBonuses, allLeaves, allVacations, settingsRows] =
+    database
+      ? [await readViolations(), await readAdvances(), await readAttendance(), await readBonuses(),
+        await readLeaves(), await readVacations(), await readSettings()]
+      : await Promise.all([
+        readViolations(), readAdvances(), readAttendance(), readBonuses(),
+        readLeaves(), readVacations(), readSettings(),
+      ]);
   // Payroll reviews must be calculated from the live PostgreSQL settings.
   // Falling back to the in-memory demo settings can make a real payslip look
   // valid while using values that were never configured in the database.

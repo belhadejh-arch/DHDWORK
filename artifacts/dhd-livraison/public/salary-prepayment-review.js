@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   let latestPreview = null;
-  let reviewHistoryEntryActive = false;
+  let reviewRequestController = null;
   const originalFetch = window.fetch.bind(window);
   const formatAmount = (value) =>
     `${Number(value || 0).toLocaleString("ar-DZ")} دج`;
@@ -46,7 +46,9 @@
       if (token) headers.set("Authorization", `Bearer ${token}`);
       if (options.body) headers.set("Content-Type", "application/json");
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 15000);
+      const timeout = window.setTimeout(() => controller.abort(), 30000);
+      const cancel = () => controller.abort();
+      options.signal?.addEventListener("abort", cancel, { once: true });
       try {
         const response = await originalFetch(path, {
           ...options,
@@ -63,6 +65,7 @@
         throw error;
       } finally {
         window.clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", cancel);
       }
     };
 
@@ -143,16 +146,7 @@
     ) {
       requestArgs[0] = `/api${requestArgs[0]}`;
     }
-    const response = await originalFetch(...requestArgs);
-    const input = requestArgs[0];
-    const requestUrl = typeof input === "string" ? input : input?.url || "";
-    if (requestUrl.includes("/salaries/preview?") && response.ok) {
-      response.clone().json().then((payload) => {
-        latestPreview = payload;
-        window.setTimeout(enhanceSalaryReview, 0);
-      }).catch(() => {});
-    }
-    return response;
+    return originalFetch(...requestArgs);
   };
   function addReviewButtonBeforePayment(payButton) {
     if (payButton.dataset.dhdReviewButtonAdded === "1") return;
@@ -263,7 +257,9 @@
       button.textContent = oldText;
     }
   }
-  function closeGeneratedReview(returnToPrevious = true) {
+  function closeGeneratedReview() {
+    reviewRequestController?.abort();
+    reviewRequestController = null;
     const overlay = document.querySelector("[data-dhd-generated-review-overlay]");
     if (overlay) {
       const focusedElement = overlay.querySelector(":focus");
@@ -272,26 +268,17 @@
         focusedElement.blur();
       }
     }
-    const shouldReturn = reviewHistoryEntryActive;
-    reviewHistoryEntryActive = false;
-    if (returnToPrevious && shouldReturn) {
-      window.history.back();
-    }
   }
   async function showGeneratedSalaryReview(payButton) {
-    closeGeneratedReview(false);
+    closeGeneratedReview();
     const context = getSalaryContext(payButton);
     if (!context.employeeId) {
       notify("تعذر تحديد بيانات الراتب للمراجعة");
       return;
     }
-    window.history.pushState(
-      { ...(window.history.state || {}), dhdSalaryReview: true },
-      document.title,
-      window.location.href,
-    );
-    reviewHistoryEntryActive = true;
     const { employeeId, month, year, employeeLink } = context;
+    const requestController = new AbortController();
+    reviewRequestController = requestController;
     const overlay = document.createElement("div");
     overlay.dataset.dhdGeneratedReviewOverlay = "1";
     overlay.className = "dhd-generated-review-overlay";
@@ -326,13 +313,14 @@
       // here: a failure in that unrelated request used to hide a valid review.
       const preview = await fetchAdminJson(
         `/api/salaries/preview?employeeId=${encodeURIComponent(employeeId)}&month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}`,
+        { signal: requestController.signal },
       );
       const salary = preview?.salary && preview.salary.id != null
         ? preview.salary
         : null;
       latestPreview = preview;
       const summary = preview.summary || preview;
-       if (!document.contains(overlay)) return;
+       if (!document.contains(overlay) || requestController.signal.aborted) return;
       if (preview.previewState === "paid" && salary?.status !== "paid" && salary?.status !== "received") {
         throw new Error("تم دفع هذا الراتب بالفعل");
       }
@@ -343,7 +331,9 @@
           ? preview.attendanceRecords
           : [];
       const violations = Array.isArray(preview.violations) ? preview.violations : [];
-      const bonuses = Array.isArray(preview.bonuses) ? preview.bonuses : [];
+      const bonuses = Array.isArray(preview.bonusRecords)
+        ? preview.bonusRecords
+        : Array.isArray(preview.bonuses) ? preview.bonuses : [];
       const advances = Array.isArray(preview.advances) ? preview.advances : [];
       const leaveRequests = Array.isArray(preview.leaveRequests) ? preview.leaveRequests : [];
       const vacationRequests = Array.isArray(preview.vacationRequests) ? preview.vacationRequests : [];
@@ -516,12 +506,23 @@
          actions.append(postponeButton, confirmButton);
        }
     } catch (error) {
+      if (requestController.signal.aborted || !document.contains(overlay)) return;
       console.error("[salary-review] generated salary review failed", error);
       const errorBody = overlay.querySelector(".dhd-generated-review-body");
       if (errorBody) {
         errorBody.innerHTML =
-          `<p class="dhd-generated-review-error">تعذر تحميل مراجعة الراتب: ${escapeHtml(error?.message || "خطأ غير معروف")}</p>`;
+          `<p class="dhd-generated-review-error">تعذر تحميل مراجعة الراتب: ${escapeHtml(
+            error?.name === "AbortError" ? "انتهت مهلة الاتصال. حاول مجددًا." : error?.message || "خطأ غير معروف",
+          )}</p>`;
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "dhd-generated-review-action";
+        retry.textContent = "إعادة المحاولة";
+        retry.addEventListener("click", () => showGeneratedSalaryReview(payButton));
+        errorBody.appendChild(retry);
       }
+    } finally {
+      if (reviewRequestController === requestController) reviewRequestController = null;
     }
   }
   function decoratePaymentDialog() {
@@ -752,9 +753,10 @@
     }
   `;
   document.head.appendChild(style);
-  new MutationObserver(enhanceSalaryReview).observe(document.documentElement, {
-    childList: true,
-    subtree: true,
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && document.querySelector("[data-dhd-generated-review-overlay]")) {
+      closeGeneratedReview();
+    }
   });
   document.addEventListener("click", (event) => {
     const clickedButton = event.target.closest?.("button");
@@ -764,7 +766,7 @@
       clickedButton?.getAttribute("title")?.trim() ||
       "";
     const isPostpone = clickedButton && /^(تأجيل|تأجيل الدفع|تأجيل الراتب|Postpone)$/i.test(label);
-    const isPdfAction = clickedButton && /^(طباعة|طباعة الكشف|طباعة كشف الراتب|كشف PDF|كشف الراتب|print|print payslip|bulletin)$/i.test(label);
+    const isPdfAction = clickedButton && /^(طباعة|طباعة الكشف|طباعة كشف الراتب|كشف PDF|كشف الراتب|print|print payslip|imprimer le bulletin|bulletin)$/i.test(label);
     if (isPdfAction && isSalaryManagementRoute()) {
       event.preventDefault();
       event.stopPropagation();
@@ -781,11 +783,9 @@
     event.stopImmediatePropagation();
     postponeSalary(clickedButton);
   }, true);
-  window.addEventListener("popstate", enhanceSalaryReview);
   window.addEventListener("popstate", () => {
     if (document.querySelector("[data-dhd-generated-review-overlay]")) {
-      closeGeneratedReview(false);
+      closeGeneratedReview();
     }
   });
-  window.setTimeout(enhanceSalaryReview, 800);
 })();

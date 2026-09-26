@@ -1039,6 +1039,9 @@ async function buildSalaryPreview(employeeId: number, month: unknown, year: unkn
   return {
     ...payload,
     ...summary,
+    // The legacy admin bundle expects bonuses to be a numeric total below.
+    // Keep the individual bonus rows separately for the detailed review.
+    bonusRecords: complete.bonuses,
     salaryId: complete.salary.id,
     month: complete.salary.month,
     year: complete.salary.year,
