@@ -385,7 +385,7 @@ apiRouter.post('/auth/change-email', async (req, res) => {
   return res.json({ success: true, message: 'تم تحديث البريد الإلكتروني بنجاح', email: updated.email });
 });
 
-apiRouter.post('/auth/change-password', async (req, res) => {
+const changeAdminPassword = async (req: express.Request, res: express.Response) => {
   const ctx = await getAuthContext(req);
   if (!ctx || ctx.userType !== 'admin') return res.status(401).json({ success: false, message: 'يجب تسجيل الدخول كمسؤول' });
   const { newPassword, currentPassword } = req.body || {};
@@ -403,7 +403,10 @@ apiRouter.post('/auth/change-password', async (req, res) => {
   const updated = await updateAdmin(adminId, { passwordHash: hashedNew });
   if (!updated) return res.status(500).json({ success: false, message: 'فشل تحديث كلمة المرور' });
   return res.json({ success: true, message: 'تم تحديث كلمة المرور بنجاح' });
-});
+};
+
+apiRouter.post('/auth/change-password', changeAdminPassword);
+apiRouter.patch('/auth/change-password', changeAdminPassword);
 
 apiRouter.post('/auth/logout', async (req, res) => {
   const authHeader = req.headers.authorization || '';
