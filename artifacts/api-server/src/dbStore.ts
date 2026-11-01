@@ -268,6 +268,17 @@ function employeeHasRestDay(employee: any, dateValue: string) {
   });
 }
 
+async function refreshPayrollForAutomaticAbsence(employeeIds: number[]) {
+  const uniqueEmployeeIds = Array.from(new Set(employeeIds.map(Number)
+    .filter((employeeId) => Number.isInteger(employeeId) && employeeId > 0)));
+  if (!uniqueEmployeeIds.length) return;
+
+  await ensureCurrentPeriodSalaries();
+  for (const employeeId of uniqueEmployeeIds) {
+    await refreshOpenSalaryCalculations(employeeId);
+  }
+}
+
 async function syncDailyAbsences(db: any, dateFilter: string, settingsRecord: any) {
   const now = new Date();
   if (dateFilter > businessDate(now)) return;
@@ -295,14 +306,18 @@ async function syncDailyAbsences(db: any, dateFilter: string, settingsRecord: an
       !onApprovedTimeOff(Number(employee.id));
   });
   if (!missing.length) return;
-  await db.insert(attendance).values(missing.map((employee: any) => ({
+  const inserted = await db.insert(attendance).values(missing.map((employee: any) => ({
     employeeId: Number(employee.id),
     officeId: employee.officeId == null ? null : Number(employee.officeId),
     date: dateFilter,
     isAbsent: true,
     notes: "غياب تلقائي: لم يتم تسجيل الحضور في يوم عمل",
     createdAt: now,
-  }))).onConflictDoNothing({ target: [attendance.employeeId, attendance.date] });
+  }))).onConflictDoNothing({ target: [attendance.employeeId, attendance.date] })
+    .returning({ employeeId: attendance.employeeId });
+  await refreshPayrollForAutomaticAbsence(
+    inserted.map((row: any) => Number(row.employeeId)),
+  );
 }
 
 function formatRequestRecord(record: any, employee?: any, office?: any) {
@@ -2664,7 +2679,12 @@ export async function markAutoAbsences(lookbackDays = 30) {
   if (!allEmps.length) return 0;
 
   // Load existing attendance since lookback date (date column is a text/date field)
-  const existingAtt = await db.select({ employeeId: attendance.employeeId, date: attendance.date })
+  const existingAtt = await db.select({
+    employeeId: attendance.employeeId,
+    date: attendance.date,
+    isAbsent: attendance.isAbsent,
+    notes: attendance.notes,
+  })
     .from(attendance)
     .where(sql`${attendance.date} >= ${sinceStr}`);
   const [approvedLeaves, approvedVacations] = await Promise.all([
@@ -2674,6 +2694,15 @@ export async function markAutoAbsences(lookbackDays = 30) {
 
   const attSet = new Set<string>(
     existingAtt.map((a: any) => `${a.employeeId}:${String(a.date || '').slice(0, 10)}`)
+  );
+  const payrollRefreshEmployeeIds = new Set<number>(
+    existingAtt
+      .filter((row: any) =>
+        row.isAbsent &&
+        String(row.notes || '').startsWith('غياب تلقائي') &&
+        String(row.date || '').slice(0, 10) <= todayStr)
+      .map((row: any) => Number(row.employeeId))
+      .filter((employeeId: number) => Number.isInteger(employeeId) && employeeId > 0),
   );
 
   const inserts: any[] = [];
@@ -2710,19 +2739,22 @@ export async function markAutoAbsences(lookbackDays = 30) {
     }
   }
 
-  if (inserts.length) {
-    // Insert in batches; the unique index on (employeeId, date) prevents duplicates
-    let inserted = 0;
-    for (let i = 0; i < inserts.length; i += 100) {
-      const rows = await db.insert(attendance).values(inserts.slice(i, i + 100))
-        .onConflictDoNothing({ target: [attendance.employeeId, attendance.date] })
-        .returning({ id: attendance.id });
-      inserted += rows.length;
+  // Recalculate open payrolls for existing generated absences as well as new
+  // ones, so a temporary refresh failure is retried on the next run without
+  // counting the same absence twice.
+  let inserted = 0;
+  for (let i = 0; i < inserts.length; i += 100) {
+    const rows = await db.insert(attendance).values(inserts.slice(i, i + 100))
+      .onConflictDoNothing({ target: [attendance.employeeId, attendance.date] })
+      .returning({ employeeId: attendance.employeeId });
+    inserted += rows.length;
+    for (const row of rows) {
+      payrollRefreshEmployeeIds.add(Number(row.employeeId));
     }
-    console.log(`[markAutoAbsences] Inserted ${inserted} absent records`);
-    return inserted;
   }
-  return 0;
+  await refreshPayrollForAutomaticAbsence(Array.from(payrollRefreshEmployeeIds));
+  if (inserted > 0) console.log(`[markAutoAbsences] Inserted ${inserted} absent records`);
+  return inserted;
 }
 
 // Unified requests listing (advances + leave + vacation) with optional status filter
