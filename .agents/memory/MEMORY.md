@@ -12,3 +12,4 @@
 - [DHD legacy asset serving](dhd-legacy-asset-serving.md) — imported Vite bundles need every split chunk restored; serve valid public assets before backup copies and preserve MIME types.
 - [DHD notification realtime](dhd-notification-realtime.md) — persisted notifications use recipient-filtered SSE for immediate sync, with polling and Web Push as fallbacks.
 - [Workspace typecheck prerequisites](workspace-typecheck-prerequisites.md) — build workspace declaration outputs before typechecking services that import source packages.
+- [pnpm install after firewall blocks](pnpm-firewall-install-recovery.md) — after upgrading a blocked transitive dependency, rerun the full workspace install to restore package links.
